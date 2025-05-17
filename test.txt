@@ -1,0 +1,4 @@
+Username: uid=newton,dc=example,dc=com, Password: password
+Username: uid=euclid,dc=example,dc=com, Password: password
+Username: uid=newton,dc=example,dc=com, Password: password
+Username: uid=euclid,dc=example,dc=com, Password: password
