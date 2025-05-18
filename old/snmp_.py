@@ -10,23 +10,35 @@ import argparse
 from ptlibs import ptprinthelper
 
 class Credential(NamedTuple):
-    username: str
-    password: str
+    username: str | None
+    password: str | None
 
 
 class SNMPVersion(NamedTuple):
-    v1: bool
-    v2c: bool
-    v3: bool
+    v1: bool | None
+    v2c: bool | None
+    v3: bool | None
+
+class WriteTestResult(NamedTuple):
+    success: bool | None
+    username: str | None   #community for snmpv2
+    password: str | None   #"" (empty) for SNMPv2
 
 
 class AuthPrivProtocols(NamedTuple):
-    auth_protocols: str
-    priv_protocols: str
+    auth_protocols: str | None
+    priv_protocols: str | None
+
 
 class SNMPResult(NamedTuple):
-    version: SNMPVersion
-    communities: list[str]
+    version: SNMPVersion | None = None
+    communities: list[str] | None = None
+    usernames: list[str] | None = None
+    credentials: list[Credential] | None = None
+    Writetest3: list[WriteTestResult] | None = None
+    Writetest2: list[WriteTestResult] | None = None
+    Bulk2: list[str] | None = None
+    Bulk3: list[str] | None = None
 
 
 class SNMP:
@@ -47,42 +59,8 @@ class SNMP:
     }
 
     def __init__(self,
-                 ip: str,
-                 port: int,
-                 output: bool = False,
-                 single_community: str = None,
-                 single_username: str = None,
-                 single_password: str = None,
-                 community_file: str = None,
-                 username_file: str = None,
-                 password_file: str = None,
-                 valid_credentials_file: str = None,
-                 spray: bool = False,
-                 auth_protocols: str = None,
-                 priv_protocols: str = None,
-                 oid: str = "1.3.6",
-                 oid_format: bool = False):
-
-        self.ip = ip
-        self.port = port
-
-        self.output = output
-
-        self.single_community = single_community
-        self.single_username = single_username
-        self.single_password = single_password
-
-        self.community_file = community_file
-        self.username_file = username_file
-        self.password_file = password_file
-
-        self.valid_credentials_file = valid_credentials_file
-
-        self.spray = spray
-        self.auth_protocols = auth_protocols
-        self.priv_protocols = priv_protocols
-        self.oid = oid
-        self.oid_format = oid_format
+               args: SNMPArgs, ):
+       self.args = args
 
     #def run(self):
         # self.banner()
@@ -483,7 +461,7 @@ class SNMP:
 
         return found_credentials
 
-    async def test_snmpv3_write_permissions(self):
+    async def test_snmpv3_write_permissions(self) -> list[WriteTestResult]:
         """
             Tests SNMPv3 write permissions by attempting to set a value on the target device.
 
@@ -499,7 +477,7 @@ class SNMP:
             Returns:
             - None: Prints the results of the write test, including success or failure messages.
         """
-
+        results: list[WriteTestResult] = []
         default_auth_protocol = usmHMACSHAAuthProtocol
         default_priv_protocol = usmDESPrivProtocol
 
@@ -541,7 +519,7 @@ class SNMP:
                     UsmUserData(cred.username, cred.password, authProtocol=Protocols.auth_protocols, privProtocol=Protocols.priv_protocols),
                     await UdpTransportTarget.create((self.ip, self.port)),
                     ContextData(),
-                    ObjectType(ObjectIdentity("SNMPv2-MIB", "sysName", 0), OctetString("Hacked!"))
+                    ObjectType(ObjectIdentity("SNMPv2-MIB", "sysName", 0), OctetString("Hacked!")) #ToDo 
                 )
                 errorIndication, errorStatus, errorIndex, varBinds = await iterator
 
@@ -549,13 +527,18 @@ class SNMP:
                     ptprinthelper.ptprint("Write was successful!")
                     for varBind in varBinds:
                         ptprinthelper.ptprint(f"OID: {varBind[0]} was set to {varBind[1]}")
+                    results.append(WriteTestResult(True, cred.username, cred.password))
                 else:
                     ptprinthelper.ptprint(f"Write failed: {errorIndication or errorStatus}")
+                    results.append(WriteTestResult(False, cred.username, cred.password))
 
             except Exception as e:
                 ptprinthelper.ptprint(f"Error: {e}")
+                results.append(WriteTestResult(False, cred.username, cred.password))
 
-    async def test_snmpv2_write_permission(self):
+        return results
+    
+    async def test_snmpv2_write_permission(self) -> list[WriteTestResult]:
         """
             Tests SNMPv2 write permissions by attempting to set a value on the target device.
 
@@ -568,10 +551,10 @@ class SNMP:
             Returns:
             - None: Prints the results of the write test, including success or failure messages.
         """
-
+        results: list[WriteTestResult] = []
         if not self.community_file and not self.single_community:
             ptprinthelper.ptprint("Error: Neither a community file nor a single community string was provided.")
-            return []
+            return results
 
         communities = self._text_or_file(self.single_community, self.community_file)
 
@@ -592,13 +575,17 @@ class SNMP:
                     ptprinthelper.ptprint("Write was successful!")
                     for varBind in varBinds:
                         ptprinthelper.ptprint(f"OID: {varBind[0]} was set to {varBind[1]}")
+                        results.append(WriteTestResult(True, community, ""))
                 else:
                     ptprinthelper.ptprint(f"Write failed: {errorIndication or errorStatus}")
+                    results.append(WriteTestResult(False, community, ""))
 
             except Exception as e:
                 ptprinthelper.ptprint(f"Error: {e}")
 
-    async def getBulk_SNMPv2(self):
+        return results
+
+    async def getBulk_SNMPv2(self) -> list[str]:
 
         """
            Executes an SNMPv2 bulk walk on the target device to retrieve MIB object values based on the specified OID.
@@ -680,7 +667,7 @@ class SNMP:
             self.write_to_file(results, f"{self.ip}_snmpv2.txt")
         return results
 
-    async def getBulk_SNMPv3(self):
+    async def getBulk_SNMPv3(self) -> list[str]:
         """
             Executes an SNMPv3 bulk walk on the target device to retrieve MIB object values based on the specified OID.
 
@@ -700,11 +687,11 @@ class SNMP:
         """
 
         if not self.single_username:
-            ptprinthelper.ptprint("\nUsername was not provided, Set the username to Start the snmpBUlk")
+            ptprinthelper.ptprint("\nUsername was not provided, Set the username to Start the snmpBulk")
             return []
 
         if not self.single_password:
-            ptprinthelper.ptprint("\nPassword was not provided, Set the password to Start the snmpBUlk")
+            ptprinthelper.ptprint("\nPassword was not provided, Set the password to Start the snmpBulk")
             return []
 
         if not self.auth_protocols:
@@ -768,38 +755,7 @@ class SNMP:
         return results
 
 
-    def banner(self):
-        # ToDo: This is not complete and does not work
-        try:
-
-            # Initialize a socket and connect to the given IP and port
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(5)  # Set a 5-second timeout
-
-            message = b"\x30\x3a\x02\x01\x03\x30\x0f\x02\x02\x4a\x69\x02\x03\0\xff\xe3\x04\x01\x04\x02\x01\x03\x04\x10\x30\x0e\x04\0\x02\x01\0\x02\x01\0\x04\0\x04\0\x04\0\x30\x12\x04\0\x04\0\xa0\x0c\x02\x02\x37\xf0\x02\x01\0\x02\x01\0\x30\0"  # Placeholder message; adjust based on protocol expectations
-            s.sendto(message, (self.ip, self.port))
-
-            # Receive the banner and decode it to a string
-            response, _ = s.recvfrom(1024)
-
-            ptprinthelper.ptprint(response)
-            ptprinthelper.ptprint(f"Raw Response (Hex): {response.hex()}")
-
-            message_version = api.decodeMessageVersion(response)
-
-            ptprinthelper.ptprint(f"Version: {message_version}")
-
-            p_mod = api.PROTOCOL_MODULES[message_version]
-            message, _ = decoder.decode(response, asn1Spec=p_mod.Message())
-            ptprinthelper.ptprint(message.prettyptprinthelper.ptprint())
-
-        except socket.error as e:
-            ptprinthelper.ptprint(f"Error: {e}")
-        finally:
-            # Ensure the socket is closed after the operation
-            s.close()
-
-        pass
+    
 
 
 def main():
@@ -886,6 +842,7 @@ def main():
     snmp_tool = SNMP(
         ip=args.ip,
         port=args.port,
+        command=args.command,
         output=args.output if hasattr(args, 'output') else False,
         single_community=getattr(args, 'single_community', None),
         single_password=getattr(args, 'single_password', None),
@@ -922,3 +879,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+python3 main.py snmp detection --

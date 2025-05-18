@@ -1,0 +1,66 @@
+import setuptools
+
+with open("ptapptestplus/_version.py") as f:
+    __version__ = f.readline().split('"')[1]
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+setuptools.setup(
+    name="ptapptestplus",
+    description="Application server penetration testing tool (Penterep tool)",
+    version=__version__,
+    author="Penterep",
+    author_email="xvasic34@vutbr.cz",
+    url="https://www.penterep.com/",
+    license="GPLv3+",
+    packages=setuptools.find_packages(),
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: Implementation :: CPython",
+        "Environment :: Console",
+        "Topic :: Security",
+        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    ],
+    python_requires=">=3.12",
+    install_requires = [
+    "appdirs==1.4.4",
+    "blinker==1.9.0",
+    "certifi==2025.4.26",
+    "cffi==1.17.1",
+    "charset-normalizer==3.4.2",
+    "click==8.2.0",
+    "colorama==0.4.6",
+    "cryptography==42.0.8",
+    "dnspython==2.7.0",
+    "filelock==3.18.0",
+    "Flask==3.1.1",
+    "idna==3.10",
+    "impacket==0.12.0",
+    "itsdangerous==2.2.0",
+    "Jinja2==3.1.6",
+    "ldap3==2.9.1",
+    "ldapdomaindump==0.10.0",
+    "MarkupSafe==3.0.2",
+    "ptlibs==1.0.26",
+    "pyasn1==0.6.1",
+    "pyasn1_modules==0.4.2",
+    "pycparser==2.22",
+    "pycryptodomex==3.22.0",
+    "pyOpenSSL==24.0.0",
+    "pyreadline3==3.5.4",
+    "pysnmp==7.1.20",
+    "python-dateutil==2.9.0.post0",
+    "python-whois==0.9.5",
+    "requests==2.32.3",
+    "requests-toolbelt==1.0.0",
+    "setuptools==78.1.1",
+    "six==1.17.0",
+    "urllib3==2.4.0",
+    "Werkzeug==3.1.3",
+],
+    entry_points={"console_scripts": ["ptapptestplus = ptapptestplus.ptapptestplus:main"]},
+    include_package_data=True,
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+)
