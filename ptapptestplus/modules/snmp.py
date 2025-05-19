@@ -1,29 +1,26 @@
 from enum import Enum
-import socket
-from pyasn1.codec.ber import decoder
-from pysnmp.proto import api
 import asyncio
 from pysnmp.hlapi.v3arch.asyncio import *
 from typing import List, NamedTuple
 from pysnmp.proto.errind import RequestTimedOut
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 from ptlibs import ptprinthelper
 from ptlibs.ptjsonlib import PtJsonLib
 
 from ._base import BaseModule, BaseArgs, Out
-from .utils.helpers import (
-    
-    add_bruteforce_args
-)
+
     
 class VULNS(Enum):
-    WeakCommunityName = "PTV-SNMP-WEAKCOMMUNITYNAME"
-    WeakUsername = "PTV-SNMP-WEAKUSERNAME"
-    Bounce = "PTV-FTP-BOUNCE"
-    WeakCreds = "PTV-FTP-WEAKCREDENTIALS"
+    WeakCommunityName = "PTV-SNMPv2-WEAKCOMMUNITYNAME"
+    WeakUsername = "PTV-SNMPv3-WEAKUSERNAME"
+    WeakCredentials = "PTV-SNMPv3-WEAKCREDENTIALS"
+    Write_2 = "PTV-SNMPv2-WRITEACCESS"
+    Write_3 = "PTV-SNMPv3-WRITEACCESS"
+    Readmib_3 = "PTV-SNMPv3-READINGMIB"
+    Readmib_2 = "PTV-SNMPv3-READINGMIB"
 
 class Credential(NamedTuple):
     username: str | None
@@ -36,9 +33,9 @@ class SNMPVersion(NamedTuple):
     v3: bool | None
 
 class WriteTestResult(NamedTuple):
-    success: bool | None
-    username: str | None   #community for snmpv2
-    password: str | None   #"" (empty) for SNMPv2
+    OID: str | None
+    creds: str | None   #community for snmpv2
+    value: str | None   
 
 
 class AuthPrivProtocols(NamedTuple):
@@ -53,8 +50,8 @@ class SNMPResult:
     credentials: Optional[List[Credential]] = None
     Writetest3: Optional[List[WriteTestResult]] = None
     Writetest2: Optional[List[WriteTestResult]] = None
-    Bulk2: Optional[List[str]] = None
-    Bulk3: Optional[List[str]] = None
+    Bulk2: Optional[str] = None
+    Bulk3: Optional[str] = None
 
 class SNMPArgs(BaseArgs):
     ip: str
@@ -112,7 +109,8 @@ class SNMPArgs(BaseArgs):
         snmpv2_write_parser = snmp_subparsers.add_parser("snmpv2-write", help="Test SNMPv2 write permission")
         snmpv2_write_parser.add_argument("--ip", required=True, help="Target IP address")
         snmpv2_write_parser.add_argument("--port", type=int, required=True, help="Target port")
-        snmpv2_write_parser.add_argument("--community-file", required=True, help="File containing community strings")
+        snmpv2_write_parser.add_argument("--community-file", help="File containing community strings")
+        snmpv2_write_parser.add_argument("--single-community", help="File containing community strings")
 
         # SNMPv2 GetBulk (Walk)
         snmpv2_getbulk_parser = snmp_subparsers.add_parser("snmpv2-walk", help="SNMPv2 MIB walk")
@@ -152,9 +150,8 @@ class SNMPArgs(BaseArgs):
         snmpv3_getbulk_parser.add_argument("--port", type=int, required=True, help="Target port")
         snmpv3_getbulk_parser.add_argument("--single-username", help="Single username")
         snmpv3_getbulk_parser.add_argument("--single-password", help="Single password")
-        snmpv3_getbulk_parser.add_argument("--valid-credentials-file", help="File containing valid credentials")
-        snmpv3_getbulk_parser.add_argument("--auth-protocol", help="Authentication protocol")
-        snmpv3_getbulk_parser.add_argument("--priv-protocol", help="Private protocol")
+        snmpv3_getbulk_parser.add_argument("--auth-protocols", help="Authentication protocol")
+        snmpv3_getbulk_parser.add_argument("--priv-protocols", help="Private protocol")
         snmpv3_getbulk_parser.add_argument("--oid", default="1.3.6", help="OID to start from")
         snmpv3_getbulk_parser.add_argument("--oid-format", action="store_true", help="Use human readable OID format")
         snmpv3_getbulk_parser.add_argument("--output", action="store_true", help="Save results to file")
@@ -167,8 +164,6 @@ class SNMPArgs(BaseArgs):
         snmpv3_write.add_argument("--single-password", help="Single password")
         snmpv3_write.add_argument("--valid-credentials-file", help="File containing valid credentials")
 
-        # Optional: Hook for custom bruteforce args
-        add_bruteforce_args(parser)
 
 
 
@@ -190,26 +185,44 @@ class SNMP(BaseModule):
         if self.args.command == "detection":
             self.results.version = asyncio.run(self.version_detection())
 
-        if self.args.command == "snmpv2-brute":
+        elif self.args.command == "snmpv2-brute":
             self.results.communities = asyncio.run(self.snmpv2_brute())
 
-        if self.args.command == "snmpv3-brute":
+        elif self.args.command == "snmpv3-brute":
             self.results.credentials = asyncio.run(self.snmpv3_brute())
 
-        if self.args.command == "snmpv3-enum":
+        elif self.args.command == "snmpv3-enum":
             self.results.usernames = asyncio.run(self.user_enum())
 
-        if self.args.command == "snmpv2-write":
+        elif self.args.command == "snmpv2-write":
             self.results.Writetest2 = asyncio.run(self.test_snmpv2_write_permission())
 
-        if self.args.command == "snmpv3-write":
+        elif self.args.command == "snmpv3-write":
             self.results.Writetest3 = asyncio.run(self.test_snmpv3_write_permissions())
 
-        if self.args.command == "snmpv2-walk":
+        elif self.args.command == "snmpv2-walk":
             self.results.Bulk2 = asyncio.run(self.getBulk_SNMPv2())
 
-        if self.args.command == "snmpv3-walk":
+        elif self.args.command == "snmpv3-walk":
             self.results.Bulk3 = asyncio.run(self.getBulk_SNMPv3())
+        
+        else:
+            print("[!] Unknown command for SNMP module.")
+
+     # Map protocol OIDs to human-readable names
+    PROTOCOL_NAMES = {
+        usmHMACMD5AuthProtocol: "usmHMACMD5AuthProtocol",
+        usmHMACSHAAuthProtocol: "usmHMACSHAAuthProtocol",
+        usmHMAC128SHA224AuthProtocol: "usmHMAC128SHA224AuthProtocol",
+        usmHMAC192SHA256AuthProtocol: "usmHMAC192SHA256AuthProtocol",
+        usmHMAC256SHA384AuthProtocol: "usmHMAC256SHA384AuthProtocol",
+        usmHMAC384SHA512AuthProtocol: "usmHMAC384SHA512AuthProtocol",
+        usmDESPrivProtocol: "usmDESPrivProtocol",
+        usmAesCfb128Protocol: "usmAesCfb128Protocol",
+        usmAesCfb192Protocol: "usmAesCfb192Protocol",
+        usmAesCfb256Protocol: "usmAesCfb256Protocol",
+        None: "None",
+    }
 
 
     def write_to_file(self, message_or_messages: str | list[str], filename: str):
@@ -665,14 +678,16 @@ class SNMP(BaseModule):
                     ptprinthelper.ptprint("Write was successful!")
                     for varBind in varBinds:
                         ptprinthelper.ptprint(f"OID: {varBind[0]} was set to {varBind[1]}")
-                    results.append(WriteTestResult(True, cred.username, cred.password))
+                        results.append(WriteTestResult(
+                        OID=str(varBind[0]),
+                        creds=f"{cred.username or 'None'}:{cred.password or 'None'}",
+                        value=str(varBind[1])
+                        ))
                 else:
                     ptprinthelper.ptprint(f"Write failed: {errorIndication or errorStatus}")
-                    results.append(WriteTestResult(False, cred.username, cred.password))
 
             except Exception as e:
                 ptprinthelper.ptprint(f"Error: {e}")
-                results.append(WriteTestResult(False, cred.username, cred.password))
 
         return results
     
@@ -713,17 +728,20 @@ class SNMP(BaseModule):
                     ptprinthelper.ptprint("Write was successful!")
                     for varBind in varBinds:
                         ptprinthelper.ptprint(f"OID: {varBind[0]} was set to {varBind[1]}")
-                        results.append(WriteTestResult(True, community, ""))
+                        results.append(WriteTestResult(
+                        OID=str(varBind[0]),
+                        creds=f"{community}",
+                        value=str(varBind[1])
+                        ))
                 else:
                     ptprinthelper.ptprint(f"Write failed: {errorIndication or errorStatus}")
-                    results.append(WriteTestResult(False, community, ""))
 
             except Exception as e:
                 ptprinthelper.ptprint(f"Error: {e}")
 
         return results
 
-    async def getBulk_SNMPv2(self) -> list[str]:
+    async def getBulk_SNMPv2(self) -> str:
 
         """
            Executes an SNMPv2 bulk walk on the target device to retrieve MIB object values based on the specified OID.
@@ -749,6 +767,8 @@ class SNMP(BaseModule):
 
         ptprinthelper.ptprint("\nStarting SNMPv2 bulk walk...")
         results = []
+        # for json
+        result = None
 
         for community in communities:
             ptprinthelper.ptprint(f"Trying community: {community}")
@@ -793,19 +813,22 @@ class SNMP(BaseModule):
                             formatted_output = f"{oid} = {value_output}"
                             ptprinthelper.ptprint(formatted_output)
                             results.append(formatted_output)
+
                 # Stop the loop if results are found
                 if results:
                     ptprinthelper.ptprint(f"Results found with community '{community}', stopping further attempts.")
+                    result = "success"
                     break
+                    
 
             except Exception as e:
                 ptprinthelper.ptprint(f"Exception occurred for community '{community}': {e}")
                 continue  # Move to the next community in case of errors
         if self.args.output:
             self.write_to_file(results, f"{self.args.ip}_snmpv2.txt")
-        return results
+        return result
 
-    async def getBulk_SNMPv3(self) -> list[str]:
+    async def getBulk_SNMPv3(self) -> str:
         """
             Executes an SNMPv3 bulk walk on the target device to retrieve MIB object values based on the specified OID.
 
@@ -823,22 +846,30 @@ class SNMP(BaseModule):
             Returns:
             - results (list): A list of formatted strings containing OID-value pairs retrieved from the target device.
         """
+        #maps user defined string to oid format of protocol
+        PROTOCOL_OBJECTS = {v: k for k, v in self.PROTOCOL_NAMES.items()}
 
         if not self.args.single_username:
-            ptprinthelper.ptprint("\nUsername was not provided, Set the username to Start the snmpBulk")
+            ptprinthelper.ptprint("\nUsername was not provided, Set the username to Start the SNMPv3 walk")
             return []
 
         if not self.args.single_password:
-            ptprinthelper.ptprint("\nPassword was not provided, Set the password to Start the snmpBulk")
+            ptprinthelper.ptprint("\nPassword was not provided, Set the password to Start the SNMPv3 walk")
             return []
 
+        if self.args.auth_protocols:
+            self.args.auth_protocols = PROTOCOL_OBJECTS.get(self.args.auth_protocols, None)
+
         if not self.args.auth_protocols:
-            ptprinthelper.ptprint("\nAuthentication protocol was not provided. Protocol is set as default: usmHMACSHAAuthProtocol")
-            self.args.auth_protocol = usmHMACSHAAuthProtocol
+            ptprinthelper.ptprint("\nAuthentication protocol was not provided or was invalid. Protocol is set as default: usmHMACSHAAuthProtocol")
+            self.args.auth_protocols = usmHMACSHAAuthProtocol
+
+        if self.args.priv_protocols:
+            self.args.priv_protocols = PROTOCOL_OBJECTS.get(self.args.priv_protocols, None)
 
         if not self.args.priv_protocols:
-            ptprinthelper.ptprint("\nAuthentication protocol was not provided. Protocol is set as default: usmAesCfb128Protocol")
-            self.args.priv_protocol = usmAesCfb128Protocol
+            ptprinthelper.ptprint("\nPrivate protocol was not provided or was invalid. Protocol is set as default: usmAesCfb128Protocol")
+            self.args.priv_protocols = usmAesCfb128Protocol
 
         Protocols = AuthPrivProtocols(self.args.auth_protocols, self.args.priv_protocols)
 
@@ -846,7 +877,7 @@ class SNMP(BaseModule):
             self.args.oid = "1.3.6"
 
         ptprinthelper.ptprint("\nStarting SNMPv3 bulk walk...")
-        results = []
+        results = None
 
         objects = walk_cmd(
             SnmpEngine(),
@@ -859,7 +890,7 @@ class SNMP(BaseModule):
         # Iterate over the returned OID-value pairs
         async for errorIndication, errorStatus, errorIndex, varBinds in objects:
             if errorIndication:
-                ptprinthelper.ptprint(f"Error: {errorIndication}")
+                ptprinthelper.ptprint(f"Error 1: {errorIndication}")
                 break
             elif errorStatus:
                 ptprinthelper.ptprint(f"Error: {errorStatus.prettyPrint()} at {errorIndex}")
@@ -886,7 +917,7 @@ class SNMP(BaseModule):
                     # Construct the final formatted string
                     formatted_output = f"{oid} = {value_output}"
                     ptprinthelper.ptprint(formatted_output)
-                    results.append(formatted_output)
+                results= "success"
 
         if self.args.output:
             self.args.write_to_file(results, f"{self.args.ip}_snmpv3.txt")
@@ -905,6 +936,17 @@ class SNMP(BaseModule):
             Bulk3: Optional[List[str]] = None
         """
 
+        def credentials_to_string(creds: List[Credential]) -> str:
+            return ", ".join(
+                f"{c.username or 'None'}:{c.password or 'None'}"
+                for c in creds
+            )
+        def write_results_to_string(results: List[WriteTestResult]) -> str:
+            return ", ".join(
+                f"{str(r.OID) or 'None'}-{r.value or 'None'}-{r.creds}"
+                for r in results
+            )
+
         if (self.results.communities != None):
             if len(self.results.communities) != 0:
                 self.ptjsonlib.add_vulnerability(VULNS.WeakCommunityName.value, "Bruteforcing SNMPv1-2 community strings", ",".join(self.results.communities))
@@ -915,23 +957,26 @@ class SNMP(BaseModule):
 
         if (self.results.credentials != None):
             if len(self.results.credentials) != 0:
-                self.ptjsonlib.add_vulnerability(VULNS.WeakUsername.value, "Bruteforcing SNMPv3 usernames", ",".join(self.results.credentials)) #TODO make Credential(NamedTuple) into string
+                cred_str = credentials_to_string(self.results.credentials)
+                self.ptjsonlib.add_vulnerability(VULNS.WeakCredentials.value, "Bruteforcing SNMPv3 credentials", cred_str) 
 
         if (self.results.Writetest3 != None):
             if len(self.results.Writetest3) != 0:
-                self.ptjsonlib.add_vulnerability(VULNS.WeakUsername.value, "Bruteforcing SNMPv3 usernames", ",".join(self.results.usernames))
+                value_str = write_results_to_string(self.results.Writetest3)
+                self.ptjsonlib.add_vulnerability(VULNS.Write_3.value, "Testing write access trough SNMPv3", value_str)
         
-        if (self.results.usernames != None):
-            if len(self.results.usernames) != 0:
-                self.ptjsonlib.add_vulnerability(VULNS.WeakUsername.value, "Bruteforcing SNMPv3 usernames", ",".join(self.results.usernames))
+        if (self.results.Writetest2 != None):
+            if len(self.results.Writetest2) != 0:
+                value_str = write_results_to_string(self.results.Writetest2)
+                self.ptjsonlib.add_vulnerability(VULNS.Write_2.value, "Testing write access trough SNMPv2", value_str)
         
-        if (self.results.usernames != None):
-            if len(self.results.usernames) != 0:
-                self.ptjsonlib.add_vulnerability(VULNS.WeakUsername.value, "Bruteforcing SNMPv3 usernames", ",".join(self.results.usernames))
+        if (self.results.Bulk3 != None):
+            if len(self.results.Bulk3) != 0:
+                self.ptjsonlib.add_vulnerability(VULNS.Readmib_3.value, "Testing reading MIB database trough SNMPv3", self.results.Bulk3)
 
-        if (self.results.usernames != None):
-            if len(self.results.usernames) != 0:
-                self.ptjsonlib.add_vulnerability(VULNS.WeakUsername.value, "Bruteforcing SNMPv3 usernames", ",".join(self.results.usernames))
+        if (self.results.Bulk2 != None):
+            if len(self.results.Bulk2) != 0:
+                self.ptjsonlib.add_vulnerability(VULNS.Readmib_2.value, "Testing reading MIB database trough SNMPv3", self.results.Bulk2)
 
     
 

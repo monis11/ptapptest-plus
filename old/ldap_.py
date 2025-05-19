@@ -514,7 +514,7 @@ def main():
     write_parser.add_argument("-bd", "--base-dn", help="Base DN (for finding entries)")
     write_parser.add_argument("-t", "--target-dn", help="Specific DN to test writing to (Dfault: objectClass=person)")
     write_parser.add_argument("-attr", "--attribute", default="sn", help="Attribute to modify (default: sn)")
-    write_parser.add_argument("-val", "--value", help="Custom value to write instead of default: SecurityTest123")
+    write_parser.add_argument("-val", "--value", dest="test_value", help="Custom value to write instead of default: SecurityTest123")
 
     args = parser.parse_args()
 
