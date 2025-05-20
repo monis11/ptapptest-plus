@@ -1,11 +1,15 @@
 import argparse
 from dataclasses import dataclass
 from enum import Enum
+from typing import List, NamedTuple, Optional
+from colorama import Fore, Style
 from impacket.dcerpc.v5 import epm, transport
 from impacket import uuid
 from impacket.dcerpc.v5 import mgmt
 from impacket.dcerpc.v5.epm import KNOWN_UUIDS
 from impacket.smbconnection import SMBConnection
+from impacket.dcerpc.v5.epm import MSRPC_UUID_PORTMAP
+from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_WINNT
 
 from ptlibs import ptprinthelper
 from ptlibs.ptjsonlib import PtJsonLib
@@ -14,17 +18,16 @@ from ._base import BaseModule, BaseArgs, Out
 
 
 class VULNS(Enum):
-    # WeakCommunityName = "PTV-SNMPv2-WEAKCOMMUNITYNAME"
-    # WeakUsername = "PTV-SNMPv3-WEAKUSERNAME"
-    # WeakCredentials = "PTV-SNMPv3-WEAKCREDENTIALS"
-    # Write_2 = "PTV-SNMPv2-WRITEACCESS"
-    # Write_3 = "PTV-SNMPv3-WRITEACCESS"
-    # Readmib_3 = "PTV-SNMPv3-READINGMIB"
-    # Readmib_2 = "PTV-SNMPv3-READINGMIB"
+    NullSession= "PTV-MSRCP-SMBNULLSESSION"
+    WeakCreds_pipes = "PTV-MSRPC-WEAKPIPECREDS"
+    WeakCreds_SMB = "PTV-MSRPC-WEAKSMBCREDS"
+    WeakCreds_TCP = "PTV-MSRPC-WEAKRPCCREDS"
+    WeakCreds_HTTP = "PTV-MSRPC-WEAKHTTPCREDS"
 
 class Credential(NamedTuple):
     username: str | None
     password: str | None
+
 
 KNOWN_UUIDS = {
     "12345778-1234-abcd-ef00-0123456789ab": {
@@ -62,36 +65,41 @@ KNOWN_UUIDS = {
 }
 
 @dataclass
-# class SNMPResult:
-#     EpmapEndpoints: Optional[dict] = None
-#     MgmtEndpoints: Optional[List[str]] = None
-#     Pipes: Optional[List[str]] = None
-#     PipesCreds: Optional[List[Credential]] = None
-
-#     Writetest3: Optional[List[WriteTestResult]] = None
-#     Writetest2: Optional[List[WriteTestResult]] = None
-#     Bulk2: Optional[str] = None
-#     Bulk3: Optional[str] = None
+class MSRPCResult:
+    EpmapEndpoints: Optional[dict] = None
+    MgmtEndpoints: Optional[List[str]] = None
+    Pipes: Optional[List[str]] = None
+    PipesCreds: Optional[List[Credential]] = None
+    Anonymous: Optional[List[str]] = None  
+    SMB_Brute: Optional[List[Credential]] = None
+    TCP_Brute: Optional[List[Credential]] = None
+    HTTP_Brute: Optional[List[Credential]] = None       
 
 class MSRPCArgs(BaseArgs):
     ip: str
-    port:int = 135 
+    port:int = None
+    command:str = None
     pipes:list = None
     username:str = None
     password:str = None
     username_file:str = None
     password_file:str = None
-    pipe:str | None
-    domain: str | None
+    pipe:str = None
+    domain: str = None
+    verbose: str = True
+    uuid: str = None
 
 
     def add_subparser(self, name: str, subparsers) -> None:
-        """Adds a subparser of SNMP arguments"""
+        """Adds a subparser of MSRPC arguments"""
 
         examples = """example usage:
-    ptapptest-plus snmp detection --ip 192.168.1.1 --port 161
-    ptapptest-plus snmp snmpv2-brute --community-file communities.txt --ip 192.168.1.1 --port 161
-    ptapptest-plus snmp snmpv3-brute --username-file users.txt --password-file passwords.txt --ip 192.168.1.1 --port 161"""
+        ptapptest-plus msrpc enumerate-epm --ip 192.168.1.1
+        ptapptest-plus msrpc brute-pipe --ip 192.168.1.1 --pipe svcctl -ul users.txt -pl passwords.txt
+        ptapptest-plus msrpc brute-smb --ip 192.168.1.1 -ul users.txt -pl passwords.txt
+        ptapptest-plus msrpc enumerate-mgmt --ip 192.168.1.1
+        ptapptest-plus msrpc brute-http --ip 192.168.1.1 -ul users.txt -pl passwords.txt
+        """
 
         parser = subparsers.add_parser(
             name,
@@ -102,6 +110,82 @@ class MSRPCArgs(BaseArgs):
 
         if not isinstance(parser, argparse.ArgumentParser):
             raise TypeError
+
+        msrpc_subparsers = parser.add_subparsers(dest="command", help="Select MSRPC command", required=True)
+
+        # Enumerate EPM endpoints
+        epm_parser = msrpc_subparsers.add_parser("enumerate-epm", help="Enumerate registered EPM endpoints")
+        epm_parser.add_argument("-ip", required=True, help="Target IP address")
+        epm_parser.add_argument("-p", "--port", type=int, default=135, help="Target port (default: 135)")
+
+        # Enumerate MGMT endpoints
+        mgmt_parser = msrpc_subparsers.add_parser("enumerate-mgmt", help="Enumerate MGMT interface UUIDs")
+        mgmt_parser.add_argument("-ip", required=True, help="Target IP address")
+        mgmt_parser.add_argument("-p", "--port", type=int, default=135, help="Target port (default: 135)")
+
+        # Pipe bruteforce
+        pipe_brute = msrpc_subparsers.add_parser("brute-pipe", help="Brute-force valid credentials for named pipe")
+        pipe_brute.add_argument("-ip", required=True, help="Target IP address")
+        pipe_brute.add_argument("--pipe", required=True, help="Named pipe to test")
+        pipe_brute.add_argument("-d", "--domain", default='', help="Domain name")
+
+        user_group = pipe_brute.add_mutually_exclusive_group(required=True)
+        user_group.add_argument("-ul", "--username_file", help="Username list file")
+        user_group.add_argument("-u", "--user", help="Single username")
+
+        pass_group = pipe_brute.add_mutually_exclusive_group(required=True)
+        pass_group.add_argument("-pl", "--password_file", help="Password list file")
+        pass_group.add_argument("-pw", "--password", help="Single password")
+
+        # SMB bruteforce
+        smb_brute = msrpc_subparsers.add_parser("brute-smb", help="Brute-force SMB credentials")
+        smb_brute.add_argument("-ip", required=True, help="Target IP address")
+        smb_brute.add_argument("-d", "--domain", default='', help="Domain name")
+        smb_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+        user_group = smb_brute.add_mutually_exclusive_group(required=True)
+        user_group.add_argument("-ul", "--username_file", help="Username list file")
+        user_group.add_argument("-u", "--user", help="Single username")
+
+        pass_group = smb_brute.add_mutually_exclusive_group(required=True)
+        pass_group.add_argument("-pl", "--password_file", help="Password list file")
+        pass_group.add_argument("-pw", "--password", help="Single password")
+
+        # TCP UUID bruteforce
+        tcp_brute = msrpc_subparsers.add_parser("brute-tcp", help="Brute-force credentials for specific UUID via TCP")
+        tcp_brute.add_argument("-ip", required=True, help="Target IP address")
+        tcp_brute.add_argument("-p", "--port", type=int,required=True, help="Target port")
+        tcp_brute.add_argument("--uuid", required=True, help="UUID to bind to")
+        tcp_brute.add_argument("-d", "--domain", default='', help="Domain name")
+        tcp_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        
+
+        user_group = tcp_brute.add_mutually_exclusive_group(required=True)
+        user_group.add_argument("-ul", "--username_file", help="Username list file")
+        user_group.add_argument("-u", "--user", help="Single username")
+
+        pass_group = tcp_brute.add_mutually_exclusive_group(required=True)
+        pass_group.add_argument("-pl", "--password_file", help="Password list file")
+        pass_group.add_argument("-pw", "--password", help="Single password")
+
+        # HTTP UUID bruteforce
+        http_brute = msrpc_subparsers.add_parser("brute-http", help="Brute-force credentials via RPC over HTTP")
+        http_brute.add_argument("-ip", required=True, help="Target IP address")
+        http_brute.add_argument("-d", "--domain", default='', help="Domain name")
+        http_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+        user_group = http_brute.add_mutually_exclusive_group(required=True)
+        user_group.add_argument("-ul", "--username_file", help="Username list file")
+        user_group.add_argument("-u", "--user", help="Single username")
+
+        pass_group = http_brute.add_mutually_exclusive_group(required=True)
+        pass_group.add_argument("-pl", "--password_file", help="Password list file")
+        pass_group.add_argument("-pw", "--password", help="Single password")
+
+        # Anonymous SMB check
+        anon_check = msrpc_subparsers.add_parser("anon-smb", help="Check anonymous SMB access and IPC$")
+        anon_check.add_argument("-ip", required=True, help="Target IP address")
+        anon_check.add_argument("-p", "--port", type=int, default=445, help="Target port (default: 445)")
         
 class MSRPC(BaseModule):
     @staticmethod
@@ -109,26 +193,58 @@ class MSRPC(BaseModule):
         return MSRPCArgs()
 
     def __init__(self, args: BaseArgs, ptjsonlib: PtJsonLib):
-        self.args = args  # type: SNMPArgs
+        self.args = args
         self.ptjsonlib = ptjsonlib
-        self.results: MSRPCesult | None = None
+        self.results: MSRPCResult | None = None
 
     def run(self) -> None:
         """Main MSRPC execution logic"""
 
         self.results = MSRPCResult()
 
+        if self.args.command == "enumerate-epm":
+            self.results.EpmapEndpoints = self.enumerate_epm()
+
+        elif self.args.command == "enumerate-mgmt":
+            self.results.MgmtEndpoints = self.enumerate_mgmt()
+
+        elif self.args.command == "brute-pipe":
+            self.results.PipesCreds = self.pipe_dictionary_attack()
+
+        elif self.args.command == "brute-smb":
+            self.results.SMB_Brute = self.smb_brute()
+
+        elif self.args.command == "brute-tcp":
+            self.results.TCP_Brute = self.tcp_brute()
+
+        elif self.args.command == "brute-http":
+            self.results.HTTP_Brute = self.http_brute()
+
+        elif self.args.command == "anon-smb":
+            self.results.Anonymous = self.Anonymous_smb()
+
+        else:
+            ptprinthelper.ptprint("[!] Unknown command for MSRPC module.")
 
 
+    def _text_or_file(self, text: str | None, file_path: str | None):
+        """
+            One domain/address or file.
+        """
+        if text:
+            return [text.strip()]
+        elif file_path:
+            try:
+                with open(file_path, 'r') as file:
+                    return [line.strip() for line in file if line.strip()]
+            except Exception as e:
+                print(Fore.RED + f"[!] ERROR: reading file {file_path}: {e}"+ Style.RESET_ALL)
+                return []
+        else:
+            print(Fore.RED + "[!] ERROR: Neither text nor file input provided."+ Style.RESET_ALL)
+            return []
 
-
-
-
-
-
-
-
-    def enumerate_epm_endpoints(self) -> dict:
+    def enumerate_epm(self) -> dict:
 
         try:
             rpctransport = transport.DCERPCTransportFactory(f'ncacn_ip_tcp:{self.args.ip}[{self.args.port}]')
@@ -194,25 +310,25 @@ class MSRPC(BaseModule):
             
 
             if tup[0] in epm.KNOWN_PROTOCOLS:
-                print("Protocol: %s" % (epm.KNOWN_PROTOCOLS[tup[0]]))
+                ptprinthelper.ptprint("Protocol: %s" % (epm.KNOWN_PROTOCOLS[tup[0]]))
             else:
-                print("Procotol: N/A")
+                ptprinthelper.ptprint("Procotol: N/A")
 
             if uuid.uuidtup_to_bin(tup)[: 18] in KNOWN_UUIDS:
-                print("Provider: %s" % (KNOWN_UUIDS[uuid.uuidtup_to_bin(tup)[:18]]))
+                ptprinthelper.ptprint("Provider: %s" % (KNOWN_UUIDS[uuid.uuidtup_to_bin(tup)[:18]]))
             else:
-                print("Provider: N/A")
+                ptprinthelper.ptprint("Provider: N/A")
 
-            print("UUID: %s v%s" % (tup[0], tup[1]))
+            ptprinthelper.ptprint("UUID: %s v%s" % (tup[0], tup[1]))
          
-        rpctransport = transport.DCERPCTransportFactory(f'ncacn_ip_tcp:{self.ip}[{self.port}]')
+        rpctransport = transport.DCERPCTransportFactory(f'ncacn_ip_tcp:{self.args.ip}[{self.args.port}]')
         
         
         try:
             dce = rpctransport.get_dce_rpc()
             dce.connect()
             dce.bind(mgmt.MSRPC_UUID_MGMT)
-            print(f"[+] Connected and bound to MGMT interface at {self.ip}:{self.port}")
+            ptprinthelper.ptprint(f"[+] Connected and bound to MGMT interface at {self.args.ip}:{self.args.port}")
             
             # Retrieving interfaces UUIDs from the MGMT interface
             ifids = mgmt.hinq_if_ids(dce)
@@ -237,46 +353,46 @@ class MSRPC(BaseModule):
                 for tup in other_uuids:
                     handle_discovered_tup(tup)
 
-            print("-----------------------------------------------------------")       
+            ptprinthelper.ptprint("-----------------------------------------------------------")       
             
             if dangerous_uuids:
-                print("Known Exploitable or Informative UUIDs")
+                ptprinthelper.ptprint("Known Exploitable or Informative UUIDs")
                 for tup in dangerous_uuids:
                     handle_discovered_tup(tup)
-                    print(f"Named Pipe: {KNOWN_UUIDS[tup[0].lower()]['pipe']}")
-                    print(f"Description: {KNOWN_UUIDS[tup[0].lower()]['description']}")
+                    ptprinthelper.ptprint(f"Named Pipe: {KNOWN_UUIDS[tup[0].lower()]['pipe']}")
+                    ptprinthelper.ptprint(f"Description: {KNOWN_UUIDS[tup[0].lower()]['description']}")
                     results.append(tup[0].lower())
             
             return results
 
         except Exception as e:
-            print(f"[!] Failed to connect/bind to MGMT interface: {e}")
+            ptprinthelper.ptprint(f"[!] Failed to connect/bind to MGMT interface: {e}")
             return []
         
 
     def try_authenticated_pipe_bind(self, pipe):
-        rpctransport = transport.DCERPCTransportFactory(f'ncacn_np:192.168.253.131[\\pipe\\{pipe}]')
+        rpctransport = transport.DCERPCTransportFactory(f'ncacn_np:{self.args.ip}[\\pipe\\{pipe}]')
         # Setting credentials for SMB
-        rpctransport.set_credentials(self.username, self.password)
+        rpctransport.set_credentials(self.args.username, self.args.password)
 
         # Setting remote host and port for SMB
-        rpctransport.setRemoteHost(self.ip)
+        rpctransport.setRemoteHost(self.args.ip)
 
         try:
             # Inicializujeme spojení
             dce = rpctransport.get_dce_rpc()
             dce.connect()
-            print(f"[+] Accessible pipe: \\\\{self.ip}\\pipe\\{pipe}")
+            ptprinthelper.ptprint(f"[+] Accessible pipe: \\\\{self.args.ip}\\pipe\\{pipe}")
        
             return True
         except Exception as e:
-            print(f"[-] Failed to bind/authenticate to pipe {pipe}: {e}")
+            ptprinthelper.ptprint(f"[-] Failed to bind/authenticate to pipe {pipe}: {e}")
             return False
 
-    def enumerate_open_known_pipes(self) -> list[str]:
+    def enumerate_pipes(self) -> list[str]:
         
-        if self.pipes:
-            known_pipes = self.pipes
+        if self.args.pipes:
+            known_pipes = self.args.pipes
         else:
             known_pipes = [
                 'epmapper', 'browser', 'eventlog', 'lsarpc', 'samr', 'svcctl',
@@ -291,19 +407,20 @@ class MSRPC(BaseModule):
                if success:
                    results.append(pipe)
             except Exception as e:
-                print(f"[!] Chyba při enumeraci EPM: {e}")
+                ptprinthelper.ptprint(f"[!] Chyba při enumeraci EPM: {e}")
                 continue
 
         return results
     
 
     #Bruteforce - valid creds for specific pipe
-    def rpc_pipe_dictionary_attack(self) -> list[Credential]:
+    #Nutno otestovat
+    def  pipe_dictionary_attack(self) -> list[Credential]:
         if not self.args.username_file and not self.args.username:
-            print("[!] No username or username list provided.")
+            ptprinthelper.ptprint("[!] No username or username list provided.")
             return
         if not self.args.password_file and not self.args.password:
-            print("[!] No password or password list provided.")
+            ptprinthelper.ptprint("[!] No password or password list provided.")
             return
 
         usernames = self._text_or_file(self.args.username, self.args.username_file)
@@ -314,7 +431,7 @@ class MSRPC(BaseModule):
         for username in usernames:
             for password in passwords:
 
-                print(f"[*] Trying {self.args.domain}\\{username}:{password}")
+                ptprinthelper.ptprint(f"[*] Trying {self.args.domain}\\{username}:{password}")
 
                 try:
                     success = self.try_authenticated_pipe_bind(
@@ -326,31 +443,198 @@ class MSRPC(BaseModule):
                     )
                     if success:
                         found.append(Credential(username=username, password=password))
-                        print(f"[+] Found valid credentials: {self.args.domain}\\{username}:{password}")
+                        ptprinthelper.ptprint(f"[+] Found valid credentials: {self.args.domain}\\{username}:{password}")
                 except Exception as e:
-                    print(f"[-] Error with {self.args.domain}\\{username}:{password} - {str(e).strip()}")
+                    ptprinthelper.ptprint(f"[-] Error with {self.args.domain}\\{username}:{password} - {str(e).strip()}")
                     continue
 
         return found
     
-    def test_anonymous_smb_access(self):
-        
+    #Checking null session and also if it is possible to share trough IPC$
+    #[True, True] worst case - both are allowed
+    #[True, False] - smb anonymous allowed, IPC$ not
+
+    # Nutno otestovat
+    def Anonymous_smb(self) -> list[str]:
+        resutlt =[]
         try:
-            smb = SMBConnection(self.ip, self.ip, sess_port=self.port, timeout=5)
+            smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=5)
             smb.login('', '')  # (null session)
 
             try:
                 shares = smb.listShares()
-                print(f"[+] Successfully connected anonymously to {self.ip} (IPC$ accessible).")
+                ptprinthelper.ptprint(f"[+] Successfully connected anonymously to {self.args.ip} (IPC$ accessible).")
                 for share in shares:
-                    print(f"    Share: {share['shi1_netname']}")
+                    ptprinthelper.ptprint(f"    Share: {share['shi1_netname']}")
                 smb.logoff()
+                result = ["True", "True"]
                 return True
             except Exception as e:
-                print(f"[~] Anonymous login OK, but IPC$ access failed: {e}")
+                ptprinthelper.ptprint(f"[~] Anonymous login OK, but IPC$ access failed: {e}")
                 smb.logoff()
-                return False
+                result = ["True", "False"]
+                return result
 
         except Exception as e:
-            print(f"[-] Anonymous SMB connection to {self.ip} failed: {e}")
+            ptprinthelper.ptprint(f"[-] Anonymous SMB connection to {self.args.ip} failed: {e}")
+            return []
+        
+    # attack just on smb no pipes 
+    # Nutno otestovat
+    def smb_brute(self) -> list[Credential]:
+
+        if not self.args.username_file and not self.args.username:
+            ptprinthelper.ptprint("[!] No username or username list provided.")
+            return
+        if not self.args.password_file and not self.args.password:
+            ptprinthelper.ptprint("[!] No password or password list provided.")
+            return
+        
+        usernames = self._text_or_file(self.args.username, self.args.username_file)
+        passwords = self._text_or_file(self.args.password, self.args.password_file)
+   
+        found = []
+
+        for username in usernames:
+            for password in passwords:
+                try:
+                    smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=3)
+                    smb.login(username, password, self.args.domain)
+
+                    ptprinthelper.ptprint(f"[+] Success: {self.args.domain}\\{username}:{password}")
+                    found.append(Credential(username=username, password=password))
+
+                    smb.logoff()
+                except Exception as e:
+                    if self.args.verbose:
+                        ptprinthelper.ptprint(f"[-] Failed: {self.args.domain}\\{username}:{password} ({str(e).strip()})")
+                    continue
+
+        return found
+    
+    def try_authenticated_bind(self, host, port, username, password, uuid, domain=''):
+        binding = f'ncacn_ip_tcp:{host}[{port}]'
+        rpctransport = transport.DCERPCTransportFactory(binding)
+        rpctransport.set_credentials(username, password, domain)
+
+        try:
+            dce = rpctransport.get_dce_rpc()
+            dce.connect()
+            dce.bind(uuid)
+            ptprinthelper.ptprint("[+] Successfully authenticated and bound to interface.")
+            dce.disconnect()
+            return True
+        except Exception as e:
+            ptprinthelper.ptprint(f"[-] Failed to bind/authenticate: {e}")
             return False
+    
+
+    #Bruteforce for specofic uuids trough TCP
+    # Nutno otestovat
+    def tcp_brute(self) -> list[Credential]:
+        #Otestovat
+
+        if not self.args.username_file and not self.args.username:
+            ptprinthelper.ptprint("[!] No username or username list provided.")
+            return
+        if not self.args.password_file and not self.args.password:
+            ptprinthelper.ptprint("[!] No password or password list provided.")
+            return
+        
+        usernames = self._text_or_file(self.args.username, self.args.username_file)
+        passwords = self._text_or_file(self.args.password, self.args.password_file)
+   
+        found = []
+
+        for username in usernames:
+            for password in passwords:
+                try:
+                    success = self.try_authenticated_bind(self.args.ip, self.args.port, username, password, uuid)
+                    if success:
+                        found.append(Credential(username=username, password=password))
+                except Exception as e:
+                    if self.args.verbose:
+                        ptprinthelper.ptprint(f"[-] Failed: {self.args.domain}\\{username}:{password} ({str(e).strip()})")
+                    continue
+
+        return found
+    
+    # Http credentials bruteforce attack
+    #Nutno otestovat
+    def http_brute(self) -> List[Credential]:
+        usernames = self._text_or_file(self.args.username, self.args.username_file)
+        passwords = self._text_or_file(self.args.password, self.args.password_file)
+        found = []
+
+        for username in usernames:
+            for password in passwords:
+                print(f"[*] Trying {username}:{password}")
+                binding = f'ncacn_http:{self.args.ip}'
+                rpctransport = transport.DCERPCTransportFactory(binding)
+                rpctransport.set_credentials(username, password, self.args.domain or "")
+                rpctransport.set_auth_type(RPC_C_AUTHN_WINNT)
+                rpctransport.setRemoteHost(self.args.ip)
+                rpctransport.set_dport(443)
+
+                try:
+                    dce = rpctransport.get_dce_rpc()
+                    dce.connect()
+                    dce.bind(MSRPC_UUID_PORTMAP)
+                    print(f"[+] Success: {username}:{password}")
+                    found.append(Credential(username=username, password=password))
+                    dce.disconnect()
+                except Exception as e:
+                    print(f"[-] Failed: {username}:{password} - {str(e).strip()}")
+                    continue
+
+        return found
+    
+    def output(self) -> None:
+        """
+            EpmapEndpoints: Optional[dict] = None
+            MgmtEndpoints: Optional[List[str]] = None
+            Pipes: Optional[List[str]] = None
+            PipesCreds: Optional[List[Credential]] = None
+            Anonymous: Optional[List[str]] = None  
+            SMB_Brute: Optional[List[Credential]] = None
+            TCP_Brute: Optional[List[Credential]] = None
+            HTTP_Brute: Optional[List[Credential]] = None       
+
+            NullSession= "PTV-MSRCP-SMBNULLSESSION"
+            WeakCreds_pipes = "PTV-MSRPC-WEAKPIPECREDS"
+            WeakCreds_SMB = "PTV-MSRPC-WEAKSMBCREDS"
+            WeakCreds_TCP = "PTV-MSRPC-WEAKRPCCREDS"
+            WeakCreds_HTTP = "PTV-MSRPC-WEAKHTTPCREDS"
+        """
+
+        def credentials_to_string(creds: List[Credential]) -> str:
+            return ", ".join(
+                f"{c.username or 'None'}:{c.password or 'None'}"
+                for c in creds
+            )
+
+        if (self.results.Anonymous != None):
+            if len(self.results.Anonymous) != 0:
+                self.ptjsonlib.add_vulnerability(VULNS.NullSession.value, "Testing anonymous SMB access and IPC$ share.", ",".join(self.results.Anonymous))
+        
+        if (self.results.PipesCreds != None):
+            if len(self.results.PipesCreds) != 0:
+                cred_str = credentials_to_string(self.results.PipesCreds)
+                self.ptjsonlib.add_vulnerability(VULNS.WeakCreds_pipes.value, "Bruteforcing credentials for specific pipes", cred_str)
+
+        if (self.results.SMB_Brute != None):
+            if len(self.results.SMB_Brute) != 0:
+                cred_str = credentials_to_string(self.results.SMB_Brute)
+                self.ptjsonlib.add_vulnerability(VULNS.WeakCreds_SMB.value, "Bruteforcing SMB credentials", cred_str) 
+
+        if (self.results.TCP_Brute != None):
+            if len(self.results.TCP_Brute) != 0:
+                cred_str = credentials_to_string(self.results.TCP_Brute)
+                self.ptjsonlib.add_vulnerability(VULNS.WeakCreds_TCP.value, "Bruteforcing RPC credentials for specific UUID", cred_str)
+        
+        if (self.results.HTTP_Brute != None):
+            if len(self.results.HTTP_Brute2) != 0:
+                cred_str = credentials_to_string(self.results.HTTP_Brute)
+                self.ptjsonlib.add_vulnerability(VULNS.WeakCreds_HTTP.value, "Bruteforcing HTTP credentials", cred_str)
+
+        self.ptprint(self.ptjsonlib.get_result_json(), json=True)

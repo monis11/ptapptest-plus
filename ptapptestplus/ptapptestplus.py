@@ -28,13 +28,13 @@ from .modules.snmp import SNMP
 from .modules._base import BaseArgs
 from .modules.dns import DNS
 from .modules.ldap import LDAP
-#from .modules.msrpc import MSRPC
+from .modules.msrpc import MSRPC
 
 MODULES = {
     "snmp": SNMP,
     "dns": DNS,
     "ldap": LDAP,
-    # "msrpc": MSRPC,
+    "msrpc": MSRPC,
 }
 
 

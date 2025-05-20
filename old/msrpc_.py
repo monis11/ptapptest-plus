@@ -2,8 +2,8 @@ from impacket.dcerpc.v5 import epm, transport
 from impacket import uuid
 from impacket.dcerpc.v5 import mgmt
 from impacket.dcerpc.v5.epm import KNOWN_UUIDS
-
 from impacket.smbconnection import SMBConnection
+
 
 KNOWN_UUIDS = {
     "12345778-1234-abcd-ef00-0123456789ab": {
@@ -66,9 +66,9 @@ class MSRPC:
         #self.enumerate_epm_endpoints()
         #self.enumerate_open_known_pipes()
         #self.enumerate_mgmt()
-        #self.test_anonymous_smb_access()
-        #self.smb_dictionary_attack()
-        self.enumerate_mgmt()
+        self.test_anonymous_smb_access()
+        self.smb_dictionary_attack()
+        #self.enumerate_mgmt()
 
 
 
@@ -294,7 +294,7 @@ class MSRPC:
         
         try:
             smb = SMBConnection(self.ip, self.ip, sess_port=self.port, timeout=5)
-            smb.login('', '')  # anonymní login (null session)
+            smb.login('Administrator', 'Password123!')  # anonymní login (null session)
 
             # pokus o přístup k IPC$
             try:
@@ -390,7 +390,7 @@ class MSRPC:
 
 def main():  
 
-    test = MSRPC("192.168.253.131", 135 )
+    test = MSRPC("192.168.253.131", 135, username_file= "C:\\Users\\monav\\Desktop\\username.txt", password_file="C:\\Users\\monav\\Desktop\\passwords.txt" )
     test.run()
 
 if __name__ == '__main__':
