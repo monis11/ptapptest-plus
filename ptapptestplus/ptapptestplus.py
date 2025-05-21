@@ -59,6 +59,8 @@ def parse_args() -> BaseArgs:
     Returns:
         BaseArgs: parsed arguments of the selected module
     """
+    
+
     parser = argparse.ArgumentParser(add_help=True)
 
     parser.add_argument(
@@ -77,6 +79,7 @@ def parse_args() -> BaseArgs:
     args = parser.parse_args(namespace=MODULES[args.module].module_args())
 
     ptprinthelper.print_banner(SCRIPTNAME, __version__, args.json)
+    
 
     return args
 

@@ -295,7 +295,7 @@ class SNMP(BaseModule):
         errorIndication, errorStatus, errorIndex, varBinds = iterator
 
         if errorIndication:
-            ptprinthelper.ptprint(errorIndication)
+            ptprinthelper.ptprint(f"[-] Error!: {errorIndication}")
 
         elif errorStatus:
             ptprinthelper.ptprint(
@@ -325,7 +325,7 @@ class SNMP(BaseModule):
         errorIndication, errorStatus, errorIndex, varBinds = iterator
 
         if errorIndication:
-            ptprinthelper.ptprint(errorIndication)
+            ptprinthelper.ptprint(f"[-] Error!: {errorIndication}")
 
         elif errorStatus:
             ptprinthelper.ptprint("[-] Error!:")

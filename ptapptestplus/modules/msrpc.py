@@ -186,6 +186,12 @@ class MSRPCArgs(BaseArgs):
         anon_check = msrpc_subparsers.add_parser("anon-smb", help="Check anonymous SMB access and IPC$")
         anon_check.add_argument("-ip", required=True, help="Target IP address")
         anon_check.add_argument("-p", "--port", type=int, default=445, help="Target port (default: 445)")
+
+        # Enumerate accessible named pipes with given credentials
+        pipes_enum = msrpc_subparsers.add_parser("enumerate-pipes", help="Enumerate accessible named pipes with provided credentials")
+        pipes_enum.add_argument("-ip", required=True, help="Target IP address")
+        pipes_enum.add_argument("-u", "--username", help="Username")
+        pipes_enum.add_argument("-pw", "--password", help="Password")
         
 class MSRPC(BaseModule):
     @staticmethod
@@ -223,6 +229,9 @@ class MSRPC(BaseModule):
         elif self.args.command == "anon-smb":
             self.results.Anonymous = self.Anonymous_smb()
 
+        elif self.args.command == "enumerate-pipes":
+            self.results.Pipes = self.enumerate_pipes()
+            
         else:
             ptprinthelper.ptprint("[!] Unknown command for MSRPC module.")
 
@@ -383,13 +392,17 @@ class MSRPC(BaseModule):
             dce = rpctransport.get_dce_rpc()
             dce.connect()
             ptprinthelper.ptprint(f"[+] Accessible pipe: \\\\{self.args.ip}\\pipe\\{pipe}")
-       
+        
             return True
         except Exception as e:
             ptprinthelper.ptprint(f"[-] Failed to bind/authenticate to pipe {pipe}: {e}")
             return False
 
     def enumerate_pipes(self) -> list[str]:
+        if self.args.username == None:
+            self.args.username = ""
+        if self.args.password == None:
+            self.args.password = ""
         
         if self.args.pipes:
             known_pipes = self.args.pipes
@@ -400,16 +413,18 @@ class MSRPC(BaseModule):
             ]
 
         results = []
+        pipes = []
 
         for pipe in known_pipes:
             try:
                success = self.try_authenticated_pipe_bind(pipe)
                if success:
                    results.append(pipe)
+                   pipes.append(pipe)
             except Exception as e:
                 ptprinthelper.ptprint(f"[!] Chyba při enumeraci EPM: {e}")
                 continue
-
+        ptprinthelper.ptprint(f"Found pipes: {pipes}")
         return results
     
 
@@ -470,7 +485,7 @@ class MSRPC(BaseModule):
                 result = ["True", "True"]
                 return True
             except Exception as e:
-                ptprinthelper.ptprint(f"[~] Anonymous login OK, but IPC$ access failed: {e}")
+                ptprinthelper.ptprint(f"[~] Anonymous SMB login succesful, but IPC$ access failed: {e}")
                 smb.logoff()
                 result = ["True", "False"]
                 return result
@@ -489,6 +504,8 @@ class MSRPC(BaseModule):
         if not self.args.password_file and not self.args.password:
             ptprinthelper.ptprint("[!] No password or password list provided.")
             return
+        if not self.args.port:
+            self.args.port = 445
         
         usernames = self._text_or_file(self.args.username, self.args.username_file)
         passwords = self._text_or_file(self.args.password, self.args.password_file)
@@ -498,6 +515,7 @@ class MSRPC(BaseModule):
         for username in usernames:
             for password in passwords:
                 try:
+                    
                     smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=3)
                     smb.login(username, password, self.args.domain)
 
@@ -509,7 +527,7 @@ class MSRPC(BaseModule):
                     if self.args.verbose:
                         ptprinthelper.ptprint(f"[-] Failed: {self.args.domain}\\{username}:{password} ({str(e).strip()})")
                     continue
-
+        ptprinthelper.ptprint(f"Valid creds: {found}")            
         return found
     
     def try_authenticated_bind(self, host, port, username, password, uuid, domain=''):

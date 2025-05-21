@@ -3,6 +3,7 @@ from impacket import uuid
 from impacket.dcerpc.v5 import mgmt
 from impacket.dcerpc.v5.epm import KNOWN_UUIDS
 from impacket.smbconnection import SMBConnection
+from colorama import Fore, Style
 
 
 KNOWN_UUIDS = {
@@ -66,9 +67,9 @@ class MSRPC:
         #self.enumerate_epm_endpoints()
         #self.enumerate_open_known_pipes()
         #self.enumerate_mgmt()
-        self.test_anonymous_smb_access()
-        self.smb_dictionary_attack()
-        #self.enumerate_mgmt()
+        # self.test_anonymous_smb_access()
+        # self.smb_dictionary_attack()
+        self.enumerate_open_known_pipes()
 
 
 

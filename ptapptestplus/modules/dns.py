@@ -249,6 +249,7 @@ class DNS(BaseModule):
         """
 
         results: list[info] = []
+        decoded_nsid = None
         
         self.drawDoubleLine()
         ptprinthelper.ptprint(Fore.CYAN + "[+] Retrieving DNS banner information..." + Style.RESET_ALL)
@@ -267,6 +268,7 @@ class DNS(BaseModule):
                 ptprinthelper.ptprint(f"{Fore.RED}{result}{Style.RESET_ALL}")
             else:
                 id_server, nsid = result
+                decoded_nsid = nsid.decode() if nsid and isinstance(nsid, bytes) else None
                 ptprinthelper.ptprint("{:<20} {:<30}".format("id.server", id_server if id_server else "Not available"))
                 if nsid:
                     ptprinthelper.ptprint("{:<20} {:<30}".format("NSID (raw)", nsid.decode() if nsid and nsid.isascii() else nsid))
@@ -277,7 +279,7 @@ class DNS(BaseModule):
             ptprinthelper.ptprint("{:<20} {:<30}".format("bind.version", ", ".join(bind_version) if isinstance(bind_version, list) else bind_version))
             self.drawLine()
 
-            results.append(info(ip, nsid.decode(), bind_version))
+            results.append(info(ip, decoded_nsid, bind_version))
 
 
     def reverseDNS(self) -> dict[str, list[str]]:
@@ -506,7 +508,7 @@ class DNS(BaseModule):
                     if subdomain_records:
                         found_subdomains.append((subdomain, subdomain_records))
                         output.append(subdomain)
-                        ptprinthelper.ptprint("[*] Found: ",Fore.BLUE + f"{subdomain}"+ Style.RESET_ALL)
+                        ptprinthelper.ptprint("[*] Found: "+ Fore.BLUE + f"{subdomain}"+ Style.RESET_ALL)
                         for rtype, values in subdomain_records.items():
                             ptprinthelper.ptprint(f"   └── {rtype}: {', '.join(values)}")
 

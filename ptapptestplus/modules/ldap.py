@@ -61,9 +61,9 @@ class LDAPArgs(BaseArgs):
         """Adds a subparser of SNMP arguments"""
 
         examples = """example usage:
-        ptapptest-plus dns brute-subdomains --domain example.com --subdomains wordlist.txt
-        ptapptest-plus dns lookup --domain example.com --lookup-records A MX TXT
-        ptapptest-plus dns reverse-dns --ip_file ips.txt
+        ptapptest-plus ldap banner -ip 192.168.1.1
+        ptapptest-plus ldap search -ip 192.168.1.1 -bd "dc=example,dc=com" -f "(uid=user)"
+        ptapptest-plus ldap userenum -ip 192.168.1.1 -ul usernames.txt -bd "dc=example,dc=com"
         """
 
         parser = subparsers.add_parser(
@@ -95,7 +95,7 @@ class LDAPArgs(BaseArgs):
         search_parser.add_argument("-u", "--user", help="Username for authenticated bind")
         search_parser.add_argument("-pw", "--password", help="Password for authenticated bind")
         search_parser.add_argument("-bd", "--base-dn", help="Base DN (example: dc=example,dc=com). If not provided, it tries to auto-detect.")
-        search_parser.add_argument("-f", "--filter", default="(objectClass=*)", help="""
+        search_parser.add_argument("-f", "--filter", dest="ldap_filter", default="(objectClass=*)", help="""
                                                                                             LDAP search filter (RFC 4515 format).\n
                                                                                             Supports complex expressions with logical operators AND (&), OR (|), and NOT (!).\n\n
 
@@ -166,7 +166,7 @@ class LDAP(BaseModule):
         self.results: LDAPResult | None = None
 
     def run(self) -> None:
-        """Main SNMP execution logic"""
+        """Main LDAP execution logic"""
 
         self.results = LDAPResult()
 
