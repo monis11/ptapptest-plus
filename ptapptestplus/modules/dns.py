@@ -11,7 +11,6 @@ from colorama import Fore, Style, init
 from typing import List, NamedTuple, Optional
 from dataclasses import dataclass
 
-from ptlibs import ptprinthelper
 from ptlibs.ptjsonlib import PtJsonLib
 
 from ._base import BaseModule, BaseArgs, Out
@@ -163,14 +162,14 @@ class DNS(BaseModule):
             self.results.Zonewalk_com = self.zone_walking_complete()
 
         else:
-            ptprinthelper.ptprint("[!] Unknown command for DNS module.")
+            self.ptprint("Unknown command for DNS module.", out=Out.WARNING)
 
 
     def drawLine(self):
-        print ('-' * 75)
+        self.ptprint('-' * 75)
 
     def drawDoubleLine(self):
-        print ('=' * 75)
+        self.ptprint('=' * 75)
 
     def write_to_file(self, message_or_messages: str | list[str]):
         """
@@ -196,10 +195,10 @@ class DNS(BaseModule):
                 with open(file_path, 'r') as file:
                     return [line.strip() for line in file if line.strip()]
             except Exception as e:
-                selfeedd.ptprint(f"ERROR: reading file {file_path}: {e}")
+                self.ptprint(f"Error: reading file {file_path}: {e}", out=Out.WARNING)
                 return []
         else:
-            ptprinthelper.ptprint("ERROR: Neither text nor file input provided.")
+            self.ptprint("Error: Neither text nor file input provided.", out=Out.WARNING)
             return []
 
 
@@ -218,7 +217,7 @@ class DNS(BaseModule):
                 answer = resolver.resolve('version.bind', 'TXT', rdclass=dns.rdataclass.CH)
                 results[ip] = [record.to_text() for record in answer]
             except Exception as e:
-                results[ip] =f"ERROR: {e}"
+                results[ip] =f"Error: {e}"
         
         return results
     
@@ -239,7 +238,7 @@ class DNS(BaseModule):
                 nsid = next((opt.nsid for opt in response.opt[0].options if opt), None) if response.opt else None
                 results[ip] = (id_server, nsid)
             except Exception as e:
-                results[ip] =f"ERROR: {e}"
+                results[ip] =f"Error: {e}"
         
         return results
     
@@ -302,13 +301,13 @@ class DNS(BaseModule):
                 results[ip] = domains if domains else ["No PTR record"]
                 self.ptprint("{:30} {:15}\n".format(ip, answer.rstrip('.')))
             except dns.resolver.NXDOMAIN:
-                self.ptprint(f"ERROR: No PTR record found for {ip}", out=Out.ERROR)
+                self.ptprint(f"Error: No PTR record found for {ip}", out=Out.ERROR)
                 
             except dns.resolver.NoAnswer:
-                self.ptprint(f"ERROR: No answer for PTR record query on {ip}", out=Out.ERROR)
+                self.ptprint(f"Error: No answer for PTR record query on {ip}", out=Out.ERROR)
             
             except dns.resolver.Timeout:
-                self.ptprint(f"ERROR: Query timeout for {ip}", out=Out.WARNING)
+                self.ptprint(f"Error: Query timeout for {ip}", out=Out.WARNING)
            
 
         return results if results else []
@@ -342,7 +341,7 @@ class DNS(BaseModule):
             return mapping
         
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout) as e:
-            self.ptprint(f"ERROR: Unable to retrieve authoritative NS - {e}", out=Out.ERROR)
+            self.ptprint(f"Error: Unable to retrieve authoritative NS - {e}", out=Out.ERROR)
             return None
     
     
@@ -356,7 +355,7 @@ class DNS(BaseModule):
         try:
             zone = dns.zone.from_xfr(dns.query.xfr(str(server).rstrip('.'), self.args.domain))
         except Exception as e:
-            self.ptprint(f"ERROR: {e.__class__} {e}", out=Out.ERROR)
+            self.ptprint(f"Error: {e.__class__} {e}", out=Out.ERROR)
         else:
             for host in zone:
                 found_domains.append(f"{host}.{self.args.domain}")
@@ -387,7 +386,7 @@ class DNS(BaseModule):
         name_servers = self.getNS(self.args.domain)
         self.drawLine()
         if name_servers == None:
-            self.ptprint(f"ERROR: Unable to start zone transfer for {self.args.domain}", out=Out.ERROR)
+            self.ptprint(f"Error: Unable to start zone transfer for {self.args.domain}", out=Out.ERROR)
         else:
             for server in name_servers:
                 self.ptprint("\n")
@@ -538,7 +537,7 @@ class DNS(BaseModule):
             # Use resolveDNS() to get the NS IP address
             ns_ip_results = self.resolveDNS(ns_name)
             if not ns_ip_results:
-                self.ptprint(f"ERROR: No IP found for NS {ns_name}", out=Out.WARNING)
+                self.ptprint(f"Error: No IP found for NS {ns_name}", out=Out.WARNING)
                 return None
 
             else:
@@ -546,7 +545,7 @@ class DNS(BaseModule):
                 return ns_ip
 
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.Timeout) as e:
-            self.ptprint(f"ERROR: Unable to retrieve authoritative NS - {e}", out=Out.ERROR)
+            self.ptprint(f"Error: Unable to retrieve authoritative NS - {e}", out=Out.ERROR)
             return None
 
     
@@ -570,7 +569,7 @@ class DNS(BaseModule):
                 response = dns.query.udp(request, ns_ip, timeout=10)
 
                 if response.rcode() != 0:
-                    self.ptprint("ERROR: No DNSKEY record found", out=Out.ERROR)
+                    self.ptprint("Error: No DNSKEY record found", out=Out.ERROR)
                     insecure_domains.append(domain)
                     
 
@@ -609,11 +608,11 @@ class DNS(BaseModule):
                 insecure_domains.append(domain)
                 
             except dns.exception.Timeout:
-                self.ptprint("[!] ERROR: DNSSEC validation timeout.", out=Out.WARNING)
+                self.ptprint("Error: DNSSEC validation timeout.", out=Out.WARNING)
                 insecure_domains.append(domain)
                 
             except Exception as e:
-                self.ptprint(f"[!] ERROR: Unexpected error - {e}", out=Out.WARNING)
+                self.ptprint(f"Error: Unexpected error - {e}", out=Out.WARNING)
 
         return insecure_domains
                 
@@ -691,10 +690,10 @@ class DNS(BaseModule):
                 return None 
         
         except dns.exception.Timeout:
-            self.ptprint("[!] ERROR: Query timeout for NSEC enumeration.", out=Out.WARNING)
+            self.ptprint("Error: Query timeout for NSEC enumeration.", out=Out.WARNING)
             return None
         except Exception as e:
-            self.ptprint(f"[!] ERROR: Unexpected error - {e}", out=Out.WARNING)
+            self.ptprint(f"Error: Unexpected error - {e}", out=Out.WARNING)
             return None
         
 
@@ -702,7 +701,6 @@ class DNS(BaseModule):
         """
             Attempts to enumerate subdomains using NSEC.
         """
-        unique_subs = list(dict.fromkeys(found_subdomains)) #to awoid duplicities
         
         self.drawDoubleLine()
         self.ptprint(f"Starting complete zone walking using NSEC from {self.args.domain}", title=True)
@@ -763,6 +761,8 @@ class DNS(BaseModule):
             self.ptprint(f"Complete zone walking results using NSEC records:", out=Out.INFO)
             self.drawLine()
 
+            unique_subs = list(dict.fromkeys(found_subdomains)) #to awoid duplicities
+
             if found_subdomains:
                 for sub in sorted(unique_subs):
                     self.ptprint(sub)
@@ -775,10 +775,10 @@ class DNS(BaseModule):
                 return None 
         
         except dns.exception.Timeout:
-            self.ptprint("ERROR: Query timeout for NSEC enumeration.", out=Out.WARNING)
+            self.ptprint("Error: Query timeout for NSEC enumeration.", out=Out.WARNING)
             return None
         except Exception as e:
-            self.ptprint(f"[!] ERROR: Unexpected error - {e}", out=Out.WARNING)
+            self.ptprint(f"Error: Unexpected error - {e}", out=Out.WARNING)
             return None
         
     def output(self) -> None:

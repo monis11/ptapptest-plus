@@ -186,14 +186,14 @@ class LDAP(BaseModule):
             self.results.Writetest = self.ldap_check_write_access()
         
         else:
-            ptprinthelper.ptprint("[!] Unknown command for SNMP module.")
+            self.ptprint("Unknown command for DNS module.", out=Out.WARNING)
         
 
     def drawLine(self):
-        print ('-' * 75)
+        self.ptprint('-' * 75)
 
     def drawDoubleLine(self):
-        print ('=' * 75)
+        self.ptprint('=' * 75)
 
     def write_to_file(self, message_or_messages: str | list[str]):
         """
@@ -225,24 +225,21 @@ class LDAP(BaseModule):
             ptprinthelper.ptprint(Fore.RED + "[!] ERROR: Neither text nor file input provided."+ Style.RESET_ALL)
             return []
         
-    def print_title1(self, title):
-                ptprinthelper.ptprint(Fore.MAGENTA + f"\n[*] {title}"+ Style.RESET_ALL)
-                ptprinthelper.ptprint('-' * (len(title) + 6))
+    def print_title(self, title):
+                self.ptprint("\n")
+                self.ptprint(f"{title}", out=Out.TITLE)
+                self.ptprint('-' * (len(title) + 6))
     
-    def print_title2(self, title):
-                ptprinthelper.ptprint(Fore.CYAN + f"\n[*] {title}"+ Style.RESET_ALL)
-                ptprinthelper.ptprint('-' * (len(title) + 6))
-
     def print_subtitle(self, title):
-        ptprinthelper.ptprint(Fore.MAGENTA + f"  - {title}" + Style.RESET_ALL)
+        self.ptprint(f"  - {title}")
 
     def print_list(self, title, items):
-        self.print_title1(title)
+        self.print_title(title)
         if items:
             for item in items:
-                ptprinthelper.ptprint(f"  - {item}")
+                self.ptprint(f"  - {item}")
         else:
-            ptprinthelper.ptprint(Fore.RED + " No data found."+ Style.RESET_ALL)
+            self.ptprint("    No data found.")
 
     def create_ldap_connection(self):
         """
@@ -256,12 +253,12 @@ class LDAP(BaseModule):
                 conn = Connection(server, auto_bind=True)
 
             if not conn.bound:
-                ptprinthelper.ptprint(Fore.RED + "[-] Bind failed." + Style.RESET_ALL)
+                self.ptprint("Bind failed.", out=Out.WARNING)
                 return None
             return server, conn
 
         except Exception as e:
-            ptprinthelper.ptprint(Fore.RED + f"[!] ERROR: {e}" + Style.RESET_ALL)
+            self.ptprint(f"Error: {e}", out=Out.WARNING)
             return None
 
     def ldap_banner(self) -> dict:
@@ -270,7 +267,7 @@ class LDAP(BaseModule):
         """
 
         self.drawDoubleLine()
-        ptprinthelper.ptprint(Fore.CYAN + f"[+] Retrieving LDAP banner information at {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})"+ Style.RESET_ALL)
+        self.ptprint(f"Retrieving LDAP banner information at {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})", title=True)
         self.drawDoubleLine()
 
         connection = self.create_ldap_connection()
@@ -308,34 +305,34 @@ class LDAP(BaseModule):
         self.print_list("Supported SASL Mechanisms", result["Supported SASL Mechanisms"])
 
         if result["Schema Entry"]:
-            self.print_title1("Schema Entry")
-            ptprinthelper.ptprint(f"  - {result['Schema Entry']}")
+            self.print_title("Schema Entry")
+            self.ptprint(f"  - {result['Schema Entry']}")
             
         if result["Vendor Name"]:
-            self.print_title1("Vendor Name")
-            ptprinthelper.ptprint(f"  - {result['Vendor Name']}")  
+            self.print_title("Vendor Name")
+            self.ptprint(f"  - {result['Vendor Name']}")  
 
         if result["Vendor Version"]:
-            self.print_title1("Vendor Version")
-            ptprinthelper.ptprint(f"  - {result['Vendor Version']}")
+            self.print_title("Vendor Version")
+            self.ptprint(f"  - {result['Vendor Version']}")
 
 
 
-        self.print_title1("Other Attributes")
+        self.print_title("Other Attributes")
         other = result["Other Attributes"]
         if other:
             for key, value in other.items():
                 self.print_subtitle(key.capitalize())
                 if not value:
-                    ptprinthelper.ptprint(Fore.RED + "    No data found."+ Style.RESET_ALL)
+                    self.ptprint("    No data found.")
                 elif isinstance(value, list):
                     for item in value:
-                        ptprinthelper.ptprint(f"    {item}")
+                        self.ptprint(f"    {item}")
                 else:
-                    ptprinthelper.ptprint(f"    {value}")
+                    self.ptprint(f"    {value}")
 
         else:
-            ptprinthelper.ptprint(Fore.RED + " No data found."+ Style.RESET_ALL)
+            self.ptprint(" No data found.")
             
         return result
 
@@ -345,7 +342,7 @@ class LDAP(BaseModule):
         """
 
         self.drawDoubleLine()
-        ptprinthelper.ptprint(Fore.CYAN + f"[+] Search result for filter: {self.args.ldap_filter} in base: {self.args.base_dn}" + Style.RESET_ALL)
+        self.ptprint(f"Search result for filter: {self.args.ldap_filter} in base: {self.args.base_dn}", title=True)
         self.drawDoubleLine()
 
         connection = self.create_ldap_connection()
@@ -358,10 +355,10 @@ class LDAP(BaseModule):
         if not self.args.base_dn:
             if server.info.naming_contexts:
                 base_dn = server.info.naming_contexts[0]
-                ptprinthelper.ptprint(Fore.YELLOW + f"[!] No base_dn provided. Using detected: {base_dn}" + Style.RESET_ALL)
+                self.ptprint(f"Warning: No base_dn provided. Using detected: {base_dn}", out=Out.WARNING)
             else:
-                ptprinthelper.ptprint(Fore.RED + "[!] Base DN could not be determined automatically." + Style.RESET_ALL)
-                ptprinthelper.ptprint(Fore.RED + "[!] Please specify a base_dn manually. Otherwise, the search cannot continue." + Style.RESET_ALL)
+                self.ptprint("Base DN could not be determined automatically.", out=Out.WARNING)
+                self.ptprint("Please specify a base_dn manually. Otherwise, the search cannot continue.", out=Out.WARNING)
                 return []
             
         else: base_dn = self.args.base_dn
@@ -398,23 +395,23 @@ class LDAP(BaseModule):
         Nicely formats and prints LDAP entry details with selected attributes.
         """
 
-        ptprinthelper.ptprint('')
+        self.ptprint(' ')
         self.drawLine()
-        ptprinthelper.ptprint(Fore.MAGENTA + "[*] Entry DN" + Style.RESET_ALL)
+        self.ptprint("Entry DN", title=True)
         self.drawLine()
-        ptprinthelper.ptprint(f"{entry.entry_dn}\n")
+        self.ptprint(f"{entry.entry_dn}\n")
 
 
         if not attributes or attributes == ['*']:
             object_classes = entry['objectClass'].value if 'objectClass' in entry else []
             main_class = object_classes[1] if len(object_classes) > 1 else object_classes[0] if object_classes else "N/A"
 
-            self.print_title1("Object Class Overview")
+            self.print_title("Object Class Overview")
 
-            ptprinthelper.ptprint(f"Main Class     : {main_class}")
-            ptprinthelper.ptprint("All Classes    : " + "-".join(object_classes) + "\n")
+            self.ptprint(f"Main Class     : {main_class}")
+            self.ptprint("All Classes    : " + "-".join(object_classes) + "\n")
 
-        self.print_title1("Attributes")
+        self.print_title("Attributes")
 
         for attr in entry.entry_attributes:
             if attr == "objectClass":
@@ -424,7 +421,7 @@ class LDAP(BaseModule):
                 val_display = "N/A"
             else:
                 val_display = ", ".join(val) if isinstance(val, list) else str(val)
-            ptprinthelper.ptprint(Fore.MAGENTA + f"{attr.capitalize():<30}" + Style.RESET_ALL + f": {val_display}")
+            self.ptprint(f"{attr.capitalize():<30}: {val_display}")
 
 
     def ldap_enumerate_users(self) -> list[str]:
@@ -433,11 +430,11 @@ class LDAP(BaseModule):
         """
 
         self.drawDoubleLine()
-        ptprinthelper.ptprint(Fore.CYAN + f"[+] Starting LDAP username enumeration on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})" + Style.RESET_ALL)
+        self.ptprint(f"Starting LDAP username enumeration on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})", title=True)
         self.drawDoubleLine()
 
         if not self.args.username_file:
-            ptprinthelper.ptprint(Fore.RED + "[!] No username list provided for enumeration." + Style.RESET_ALL)
+            self.ptprint("No username list provided for enumeration.", out=Out.WARNING)
             return []
         
         usernames = self._text_or_file(None, self.args.username_file)
@@ -452,10 +449,10 @@ class LDAP(BaseModule):
         if not self.args.base_dn:
             if server.info.naming_contexts:
                 base_dn = server.info.naming_contexts[0]
-                ptprinthelper.ptprint(Fore.YELLOW + f"[!] No base_dn provided. Using detected: {base_dn}" + Style.RESET_ALL)
+                self.ptprint(f"No base_dn provided. Using detected: {base_dn}", out=Out.WARNING)
             else:
-                ptprinthelper.ptprint(Fore.RED + "[!] Base DN could not be determined automatically." + Style.RESET_ALL)
-                ptprinthelper.ptprint(Fore.RED + "[!] Please specify a base_dn manually. Otherwise, the search cannot continue." + Style.RESET_ALL)
+                self.ptprint("Base DN could not be determined automatically.", out=Out.WARNING)
+                self.ptprint("Please specify a base_dn manually. Otherwise, the search cannot continue.", out=Out.WARNING)
                 return []
         else: base_dn = self.args.base_dn
 
@@ -474,10 +471,10 @@ class LDAP(BaseModule):
                 found = len(conn.entries) > 0  #True if found, False otherwise
 
                 if found:
-                    ptprinthelper.ptprint(Fore.GREEN + f"SUCCESS: {username}" + Style.RESET_ALL)
+                    self.ptprint(f"SUCCESS: {username}", out=Out.OK)
                     valid_users.append(username)
                 else:
-                    ptprinthelper.ptprint(f"FAIL: {username}")
+                    self.ptprint(f"FAIL: {username}", out=Out.ERROR)
 
             conn.unbind()
 
@@ -487,17 +484,17 @@ class LDAP(BaseModule):
                 if self.args.output_file:
                     self.write_to_file(valid_users)
 
-                self.print_title2("Valid users found:")
+                self.print_title("Valid users found:")
                 for u in valid_users:
-                    ptprinthelper.ptprint(f"  - {u}")
+                    self.ptprint(f"  - {u}")
             else:
-                ptprinthelper.ptprint(Fore.RED + "[!] No valid users found." + Style.RESET_ALL)
+                self.ptprint("No valid users found.", out=Out.INFO)
 
             return valid_users
             
             
         except Exception as e:
-            ptprinthelper.ptprint(Fore.RED + f"[!] ERROR: {e}" + Style.RESET_ALL)
+            self.ptprint(f"ERROR: {e}", out=Out.WARNING)
             return []
         
         
@@ -509,7 +506,7 @@ class LDAP(BaseModule):
         """
 
         self.drawDoubleLine()
-        ptprinthelper.ptprint(Fore.CYAN + f"[+] Starting LDAP brute-force on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})" + Style.RESET_ALL)
+        self.ptprint(f"Starting LDAP brute-force on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})", title=True)
         self.drawDoubleLine()
 
         usernames = self._text_or_file(self.args.user, self.args.username_file)
@@ -523,13 +520,13 @@ class LDAP(BaseModule):
 
         valid_credentials = []
         if not usernames or not passwords:
-            ptprinthelper.ptprint(Fore.RED + "[!] Usernames or passwords list is empty." + Style.RESET_ALL)
+            self.ptprint("Usernames or passwords list is empty.", out=Out.WARNING)
             return
         
         if not self.args.base_dn and not self.args.upn_domain:
-            ptprinthelper.ptprint(Fore.RED + "[!] No base_dn provided." + Style.RESET_ALL)
-            ptprinthelper.ptprint(Fore.YELLOW + "[!] Proceeding with simple username-only bind. Success is unlikely unless the server accepts plain usernames." + Style.RESET_ALL)
-        
+            self.ptprint("No base_dn provided.", out=Out.WARNING)
+            self.ptprint("Proceeding with simple username-only bind. Success is unlikely unless the server accepts plain usernames.", out=Out.WARNING)
+
         for cred in creds:
             for i in self.args.cn_uid:    
                 try:
@@ -543,15 +540,15 @@ class LDAP(BaseModule):
                     server = Server(self.args.ip, port=self.args.port, use_ssl=self.args.use_ssl, get_info=ALL)
                     conn = Connection(server, user=bind_dn, password=cred.password, auto_bind=True)
                     if conn.bound:
-                        ptprinthelper.ptprint(Fore.GREEN + f"SUCCESS: {bind_dn}:{cred.password}" + Style.RESET_ALL)
+                        self.ptprint(f"SUCCESS: {bind_dn}:{cred.password}", out=Out.OK)
                         valid_credentials.append(Credential(username=bind_dn, password=cred.password))
                         conn.unbind()
                 except Exception as e:
                     err_msg = str(e).lower()
                     if "invalidcredentials" in err_msg:
-                        ptprinthelper.ptprint(f"FAIL: {bind_dn}:{cred.password}")
+                        self.ptprint(f"FAIL: {bind_dn}:{cred.password}", out=Out.ERROR)
                     else:
-                        ptprinthelper.ptprint(Fore.RED + f"[!] ERROR for {bind_dn}:{cred.password} -> {e}" + Style.RESET_ALL)
+                        self.ptprint(f"ERROR for {bind_dn}:{cred.password} -> {e}", out=Out.WARNING)
 
         if valid_credentials:
 
@@ -560,14 +557,14 @@ class LDAP(BaseModule):
                 results = [f"Username: {cred.username}, Password: {cred.password}" for cred in valid_credentials]
                 self.write_to_file(results)
 
-            self.print_title2("Valid credentials found:")
+            self.print_title("Valid credentials found:")
             for user, password in valid_credentials:
-                ptprinthelper.ptprint(f"Username: {user:<50} Password: {password}")
+                self.ptprint(f"Username: {user:<50} Password: {password}")
 
             return valid_credentials
         
         else:
-            ptprinthelper.ptprint(Fore.RED + "[-] No valid credentials were found." + Style.RESET_ALL)
+            self.ptprint("No valid credentials were found.", out=Out.INFO)
 
             return []
 
@@ -578,7 +575,7 @@ class LDAP(BaseModule):
         Tests LDAP write access by attempting to modify a specified attribute.
         """
         self.drawDoubleLine()
-        ptprinthelper.ptprint(Fore.CYAN + f"[+] Testing write access on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})" + Style.RESET_ALL)
+        self.ptprint(f"Testing write access on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})", title=True)
         self.drawDoubleLine()
 
         connection = self.create_ldap_connection()
@@ -592,10 +589,10 @@ class LDAP(BaseModule):
                 base_dn = server.info.naming_contexts[0] if server.info.naming_contexts else ''
                 conn.search(base_dn, '(objectClass=person)', attributes='sn', size_limit=1)
                 if not conn.entries:
-                    ptprinthelper.ptprint(Fore.RED + "[!] Could not find a modifiable entry (objectClass=person)." + Style.RESET_ALL)
+                    self.ptprint("Could not find a modifiable entry (objectClass=person).", out=Out.ERROR)
                     return []
                 self.args.target_dn = conn.entries[0].entry_dn
-                ptprinthelper.ptprint(f"Target dn: {self.args.target_dn}")
+                self.ptprint(f"Target DN: {self.args.target_dn}", out=Out.INFO)
 
             if self.args.test_value:
                 test_value = self.args.test_value
@@ -609,8 +606,8 @@ class LDAP(BaseModule):
             )
 
             if success:
-                ptprinthelper.ptprint(Fore.GREEN + f"[+] SUCCESS: Write access confirmed on '{self.args.attribute}' at {self.args.target_dn}" + Style.RESET_ALL)
-                ptprinthelper.ptprint(Fore.YELLOW + "[!] Note: Attribute was modified for testing purposes. Don't forget to revert it back if necessary." + Style.RESET_ALL)
+                self.ptprint(f"SUCCESS: Write access confirmed on '{self.args.attribute}' at {self.args.target_dn}", out=Out.OK)
+                self.ptprint("Note: Attribute was modified for testing purposes. Don't forget to revert it back if necessary.", out=Out.INFO)
                 atribute = self.args.attribute
                 username  = self.args.user
                 password = self.args.password
@@ -623,11 +620,11 @@ class LDAP(BaseModule):
                 return result
 
             else:
-                ptprinthelper.ptprint(Fore.RED + f"[-] FAILED: No write access to '{self.args.attribute}' at {self.args.target_dn}" + Style.RESET_ALL)
-                ptprinthelper.ptprint(Fore.RED + f"    Details: {conn.result['description']} - {conn.result.get('message', '')}" + Style.RESET_ALL)
+                self.ptprint(f"FAIL: No write access to '{self.args.attribute}' at {self.args.target_dn}", out=Out.ERROR)
+                self.ptprint(f"Details: {conn.result['description']} - {conn.result.get('message', '')}")
                 return []
         except Exception as e:
-            ptprinthelper.ptprint(Fore.RED + f"[!] ERROR: {e}" + Style.RESET_ALL)
+            self.ptprint(f"Error: {e}", out=Out.WARNING)
         finally:
             conn.unbind()
 
