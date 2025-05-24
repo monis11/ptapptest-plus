@@ -1,6 +1,6 @@
 # ptapptest-plus
 
-**ptapptest-plus** is a semi-automated penetration testing tool focused on application-layer protocols: **SNMP**, **DNS**, **LDAP**, and **MSRPC**. It was developed as part of a master’s thesis and serves as a practical implementation of commonly used procedures in manual protocol testing.
+**ptapptest-plus** is a semi-automated penetration testing tool focused on application-layer protocols: **SNMP**, **DNS**, **LDAP**, and **MSRPC**.
 
 - Modular and extensible architecture written in **Python**
 - Integration with the **Penterep** testing platform (`ptlibs`)
