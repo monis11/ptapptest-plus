@@ -6,7 +6,6 @@ from typing import  List, NamedTuple, Optional
 import argparse 
 import sys
 
-from ptlibs import ptprinthelper
 from ptlibs.ptjsonlib import PtJsonLib
 
 from ._base import BaseModule, BaseArgs, Out
@@ -219,10 +218,10 @@ class LDAP(BaseModule):
                 with open(file_path, 'r') as file:
                     return [line.strip() for line in file if line.strip()]
             except Exception as e:
-                ptprinthelper.ptprint(Fore.RED + f"[!] ERROR: reading file {file_path}: {e}"+ Style.RESET_ALL)
+                self.ptprint(f"Error: reading file {file_path}: {e}", out=Out.WARNING)
                 return []
         else:
-            ptprinthelper.ptprint(Fore.RED + "[!] ERROR: Neither text nor file input provided."+ Style.RESET_ALL)
+            self.ptprint("Error: Neither text nor file input provided.", out=Out.WARNING)
             return []
         
     def print_title(self, title):
@@ -484,7 +483,7 @@ class LDAP(BaseModule):
                 if self.args.output_file:
                     self.write_to_file(valid_users)
 
-                self.print_title("Valid users found:")
+                self.print_title("Valid users found:", out=Out.INFO)
                 for u in valid_users:
                     self.ptprint(f"  - {u}")
             else:

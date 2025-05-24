@@ -11,7 +11,6 @@ from impacket.smbconnection import SMBConnection
 from impacket.dcerpc.v5.epm import MSRPC_UUID_PORTMAP
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_WINNT
 
-from ptlibs import ptprinthelper
 from ptlibs.ptjsonlib import PtJsonLib
 
 from ._base import BaseModule, BaseArgs, Out
@@ -131,7 +130,7 @@ class MSRPCArgs(BaseArgs):
 
         user_group = pipe_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
-        user_group.add_argument("-u", "--user", help="Single username")
+        user_group.add_argument("-u", "--username", help="Single username")
 
         pass_group = pipe_brute.add_mutually_exclusive_group(required=True)
         pass_group.add_argument("-pl", "--password_file", help="Password list file")
@@ -145,7 +144,7 @@ class MSRPCArgs(BaseArgs):
 
         user_group = smb_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
-        user_group.add_argument("-u", "--user", help="Single username")
+        user_group.add_argument("-u", "--username", help="Single username")
 
         pass_group = smb_brute.add_mutually_exclusive_group(required=True)
         pass_group.add_argument("-pl", "--password_file", help="Password list file")
@@ -162,7 +161,7 @@ class MSRPCArgs(BaseArgs):
 
         user_group = tcp_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
-        user_group.add_argument("-u", "--user", help="Single username")
+        user_group.add_argument("-u", "--username", help="Single username")
 
         pass_group = tcp_brute.add_mutually_exclusive_group(required=True)
         pass_group.add_argument("-pl", "--password_file", help="Password list file")
@@ -176,7 +175,7 @@ class MSRPCArgs(BaseArgs):
 
         user_group = http_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
-        user_group.add_argument("-u", "--user", help="Single username")
+        user_group.add_argument("-u", "--username", help="Single username")
 
         pass_group = http_brute.add_mutually_exclusive_group(required=True)
         pass_group.add_argument("-pl", "--password_file", help="Password list file")
@@ -233,8 +232,13 @@ class MSRPC(BaseModule):
             self.results.Pipes = self.enumerate_pipes()
             
         else:
-            ptprinthelper.ptprint("[!] Unknown command for MSRPC module.")
+            self.ptprint("Unknown command for LDAP module.", out=Out.WARNING)
 
+    def drawLine(self):
+        self.ptprint('-' * 75)
+
+    def drawDoubleLine(self):
+        self.ptprint('=' * 75)
 
     def _text_or_file(self, text: str | None, file_path: str | None):
         """
@@ -247,13 +251,17 @@ class MSRPC(BaseModule):
                 with open(file_path, 'r') as file:
                     return [line.strip() for line in file if line.strip()]
             except Exception as e:
-                print(Fore.RED + f"[!] ERROR: reading file {file_path}: {e}"+ Style.RESET_ALL)
+                self.ptprint(f"Error: reading file {file_path}: {e}", out=Out.WARNING)
                 return []
         else:
-            print(Fore.RED + "[!] ERROR: Neither text nor file input provided."+ Style.RESET_ALL)
+            self.ptprint("Error: Neither text nor file input provided.", out=Out.WARNING)
             return []
 
     def enumerate_epm(self) -> dict:
+
+        self.drawDoubleLine()
+        self.ptprint(f"Enumerating EPM endpoints at {self.args.ip}:{self.args.port}", title=True)
+        self.drawDoubleLine()
 
         try:
             rpctransport = transport.DCERPCTransportFactory(f'ncacn_ip_tcp:{self.args.ip}[{self.args.port}]')
@@ -290,45 +298,48 @@ class MSRPC(BaseModule):
                     tmp_endpoints[tmpUUID]['Protocol'] = "N/A"
 
             for endpoint in list(tmp_endpoints.keys()):
-                ptprinthelper.ptprint("Protocol: %s " % tmp_endpoints[endpoint]['Protocol'])
-                ptprinthelper.ptprint("Provider: %s " % tmp_endpoints[endpoint]['EXE'])
-                ptprinthelper.ptprint("UUID    : %s %s" % (endpoint, tmp_endpoints[endpoint]['annotation']))
-                ptprinthelper.ptprint("Bindings: ")
+                self.ptprint("Protocol: %s " % tmp_endpoints[endpoint]['Protocol'])
+                self.ptprint("Provider: %s " % tmp_endpoints[endpoint]['EXE'])
+                self.ptprint("UUID    : %s %s" % (endpoint, tmp_endpoints[endpoint]['annotation']))
+                self.ptprint("Bindings: ")
                 for binding in tmp_endpoints[endpoint]['Bindings']:
-                    ptprinthelper.ptprint("          %s" % binding)
-                ptprinthelper.ptprint("")
+                    self.ptprint("          %s" % binding)
+                self.ptprint("\n")
 
             dce.disconnect()
-            ptprinthelper.ptprint(f"Endpoints count: {len(tmp_endpoints)}")
+            self.ptprint(f"Total endpoints found: {len(tmp_endpoints)}", out=Out.INFO)
 
             return tmp_endpoints
 
         except Exception as e:
-            ptprinthelper.ptprint(f"[!] Chyba při enumeraci EPM: {e}")
+            self.ptprint(f"Error during EPM enumeration: {e}", out=Out.WARNING)
 
         return tmp_endpoints
     
 
     def enumerate_mgmt(self) -> list[str]:
 
+        self.drawDoubleLine()
+        self.ptprint(f"Enumerating MGMT endpoints at {self.args.ip}:{self.args.port}", title=True)
+        self.drawDoubleLine()
+
         dangerous_uuids = []
         other_uuids = []
         results =[]
 
         def handle_discovered_tup(tup):
-            
 
             if tup[0] in epm.KNOWN_PROTOCOLS:
-                ptprinthelper.ptprint("Protocol: %s" % (epm.KNOWN_PROTOCOLS[tup[0]]))
+                self.ptprint("Protocol: %s" % (epm.KNOWN_PROTOCOLS[tup[0]]))
             else:
-                ptprinthelper.ptprint("Procotol: N/A")
+                self.ptprint("Procotol: N/A")
 
             if uuid.uuidtup_to_bin(tup)[: 18] in KNOWN_UUIDS:
-                ptprinthelper.ptprint("Provider: %s" % (KNOWN_UUIDS[uuid.uuidtup_to_bin(tup)[:18]]))
+                self.ptprint("Provider: %s" % (KNOWN_UUIDS[uuid.uuidtup_to_bin(tup)[:18]]))
             else:
-                ptprinthelper.ptprint("Provider: N/A")
+                self.ptprint("Provider: N/A")
 
-            ptprinthelper.ptprint("UUID: %s v%s" % (tup[0], tup[1]))
+            self.ptprint("UUID: %s v%s" % (tup[0], tup[1]))
          
         rpctransport = transport.DCERPCTransportFactory(f'ncacn_ip_tcp:{self.args.ip}[{self.args.port}]')
         
@@ -337,7 +348,6 @@ class MSRPC(BaseModule):
             dce = rpctransport.get_dce_rpc()
             dce.connect()
             dce.bind(mgmt.MSRPC_UUID_MGMT)
-            ptprinthelper.ptprint(f"[+] Connected and bound to MGMT interface at {self.args.ip}:{self.args.port}")
             
             # Retrieving interfaces UUIDs from the MGMT interface
             ifids = mgmt.hinq_if_ids(dce)
@@ -361,44 +371,48 @@ class MSRPC(BaseModule):
             if other_uuids:
                 for tup in other_uuids:
                     handle_discovered_tup(tup)
+                    self.ptprint("\n")
 
-            ptprinthelper.ptprint("-----------------------------------------------------------")       
+            self.drawLine()       
             
             if dangerous_uuids:
-                ptprinthelper.ptprint("Known Exploitable or Informative UUIDs")
+                self.ptprint("Known Exploitable or Informative UUIDs", out=Out.INFO)
+                self.drawLine()
                 for tup in dangerous_uuids:
                     handle_discovered_tup(tup)
-                    ptprinthelper.ptprint(f"Named Pipe: {KNOWN_UUIDS[tup[0].lower()]['pipe']}")
-                    ptprinthelper.ptprint(f"Description: {KNOWN_UUIDS[tup[0].lower()]['description']}")
+                    self.ptprint(f"Named Pipe: {KNOWN_UUIDS[tup[0].lower()]['pipe']}")
+                    self.ptprint(f"Description: {KNOWN_UUIDS[tup[0].lower()]['description']}")
+                    self.ptprint("\n")
                     results.append(tup[0].lower())
             
             return results
 
         except Exception as e:
-            ptprinthelper.ptprint(f"[!] Failed to connect/bind to MGMT interface: {e}")
+            self.ptprint(f"Failed to connect/bind to MGMT interface: {e}", out=Out.ERROR)
             return []
         
 
-    def try_authenticated_pipe_bind(self, pipe):
+    def try_authenticated_pipe_bind(self, pipe, username, password, domain=''):
         rpctransport = transport.DCERPCTransportFactory(f'ncacn_np:{self.args.ip}[\\pipe\\{pipe}]')
-        # Setting credentials for SMB
-        rpctransport.set_credentials(self.args.username, self.args.password)
-
-        # Setting remote host and port for SMB
+        rpctransport.set_credentials(username, password, domain)
         rpctransport.setRemoteHost(self.args.ip)
 
         try:
-            # Inicializujeme spojení
             dce = rpctransport.get_dce_rpc()
             dce.connect()
-            ptprinthelper.ptprint(f"[+] Accessible pipe: \\\\{self.args.ip}\\pipe\\{pipe}")
-        
+            self.ptprint(f"SUCCESS: \\\\{self.args.ip}\\pipe\\{pipe} ({username}:{password})", out=Out.OK)
             return True
         except Exception as e:
-            ptprinthelper.ptprint(f"[-] Failed to bind/authenticate to pipe {pipe}: {e}")
+            self.ptprint(f"FAIL '{pipe}' ({username}:{password}): {e}", out=Out.ERROR)
             return False
 
     def enumerate_pipes(self) -> list[str]:
+
+
+        self.drawDoubleLine()
+        self.ptprint("Starting authenticated named pipe enumeration", title=True)
+        self.drawDoubleLine()
+
         if self.args.username == None:
             self.args.username = ""
         if self.args.password == None:
@@ -417,25 +431,33 @@ class MSRPC(BaseModule):
 
         for pipe in known_pipes:
             try:
-               success = self.try_authenticated_pipe_bind(pipe)
-               if success:
-                   results.append(pipe)
-                   pipes.append(pipe)
+                success = self.try_authenticated_pipe_bind(pipe, self.args.username, self.args.password, self.args.domain or '')
+                                                            
+                if success:
+                    results.append(pipe)
+                    pipes.append(pipe)
             except Exception as e:
-                ptprinthelper.ptprint(f"[!] Chyba při enumeraci EPM: {e}")
+                self.ptprint(f"Error during pipe enumeration: {e}", out=Out.WARNING)
                 continue
-        ptprinthelper.ptprint(f"Found pipes: {pipes}")
+        self.ptprint("\n")
+        self.ptprint(f"Found pipes:", out=Out.INFO)
+        for pipe in pipes:
+            self.ptprint(pipe)
         return results
     
 
     #Bruteforce - valid creds for specific pipe
-    #Nutno otestovat
     def  pipe_dictionary_attack(self) -> list[Credential]:
+
+        self.drawDoubleLine()
+        self.ptprint(f"Starting named pipe dictionary attack on \\\\{self.args.ip}\\pipe\\{self.args.pipe}", title=True)
+        self.drawDoubleLine()    
+
         if not self.args.username_file and not self.args.username:
-            ptprinthelper.ptprint("[!] No username or username list provided.")
+            self.ptprint("No username or username list provided.", out=Out.WARNING)
             return
         if not self.args.password_file and not self.args.password:
-            ptprinthelper.ptprint("[!] No password or password list provided.")
+            self.ptprint("No password or password list provided.", out=Out.WARNING)
             return
 
         usernames = self._text_or_file(self.args.username, self.args.username_file)
@@ -446,22 +468,28 @@ class MSRPC(BaseModule):
         for username in usernames:
             for password in passwords:
 
-                ptprinthelper.ptprint(f"[*] Trying {self.args.domain}\\{username}:{password}")
-
                 try:
                     success = self.try_authenticated_pipe_bind(
-                        host=self.args.ip,
+                        pipe=self.args.pipe,
                         username=username,
                         password=password,
-                        pipe=self.args.pipe,
-                        domain=self.args.domain
+                        domain=self.args.domain or ''
                     )
                     if success:
                         found.append(Credential(username=username, password=password))
-                        ptprinthelper.ptprint(f"[+] Found valid credentials: {self.args.domain}\\{username}:{password}")
+                        
                 except Exception as e:
-                    ptprinthelper.ptprint(f"[-] Error with {self.args.domain}\\{username}:{password} - {str(e).strip()}")
+                    self.ptprint(f"Error {self.args.domain}\\{username}:{password} - {str(e).strip()}", out=Out.WARNING)
                     continue
+        
+        self.ptprint("\n")
+        self.ptprint("Valid credentials found:", out=Out.INFO) 
+        if found:
+            for cred in found:
+                self.ptprint(f"{cred.username}:{cred.password}")
+        
+        else: 
+            self.ptprint("No valid credentials were found.")
 
         return found
     
@@ -469,40 +497,47 @@ class MSRPC(BaseModule):
     #[True, True] worst case - both are allowed
     #[True, False] - smb anonymous allowed, IPC$ not
 
-    # Nutno otestovat
     def Anonymous_smb(self) -> list[str]:
         resutlt =[]
+
+        self.drawDoubleLine()
+        self.ptprint(f"Testing anonymous SMB connection to {self.args.ip}:{self.args.port}", title=True)
+        self.drawDoubleLine()
+
         try:
             smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=5)
             smb.login('', '')  # (null session)
 
             try:
                 shares = smb.listShares()
-                ptprinthelper.ptprint(f"[+] Successfully connected anonymously to {self.args.ip} (IPC$ accessible).")
+                self.ptprint(f"Anonymous login successful. IPC$ accessible.", out=Out.OK)
                 for share in shares:
-                    ptprinthelper.ptprint(f"    Share: {share['shi1_netname']}")
+                    self.ptprint(f"    Share: {share['shi1_netname']}")
                 smb.logoff()
                 result = ["True", "True"]
                 return True
             except Exception as e:
-                ptprinthelper.ptprint(f"[~] Anonymous SMB login succesful, but IPC$ access failed: {e}")
+                self.ptprint(f"Anonymous login successful, but IPC$ access failed: {e}", out=Out.INFO)
                 smb.logoff()
                 result = ["True", "False"]
                 return result
 
         except Exception as e:
-            ptprinthelper.ptprint(f"[-] Anonymous SMB connection to {self.args.ip} failed: {e}")
+            self.ptprint(f"Anonymous SMB login failed: {e}", out=Out.ERROR)
             return []
         
     # attack just on smb no pipes 
-    # Nutno otestovat
     def smb_brute(self) -> list[Credential]:
 
+        self.drawDoubleLine()
+        self.ptprint(f"Starting SMB brute-force on {self.args.ip}:{self.args.port or 445}", title=True)
+        self.drawDoubleLine()
+
         if not self.args.username_file and not self.args.username:
-            ptprinthelper.ptprint("[!] No username or username list provided.")
+            self.ptprint("Error: No username or username list provided.", out=Out.WARNING)
             return
         if not self.args.password_file and not self.args.password:
-            ptprinthelper.ptprint("[!] No password or password list provided.")
+            self.ptprint("Error: No password or password list provided.", out=Out.WARNING)
             return
         if not self.args.port:
             self.args.port = 445
@@ -519,15 +554,24 @@ class MSRPC(BaseModule):
                     smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=3)
                     smb.login(username, password, self.args.domain)
 
-                    ptprinthelper.ptprint(f"[+] Success: {self.args.domain}\\{username}:{password}")
+                    self.ptprint(f"SUCCESS: {self.args.domain}\\{username}:{password}", out=Out.OK)
                     found.append(Credential(username=username, password=password))
 
                     smb.logoff()
                 except Exception as e:
                     if self.args.verbose:
-                        ptprinthelper.ptprint(f"[-] Failed: {self.args.domain}\\{username}:{password} ({str(e).strip()})")
+                        self.ptprint(f"FAIL: {self.args.domain}\\{username}:{password} ({str(e).strip()})", out=Out.ERROR)
                     continue
-        ptprinthelper.ptprint(f"Valid creds: {found}")            
+        
+        self.ptprint("\n")
+        self.ptprint("Valid credentials found:", out=Out.INFO)   
+        if found:
+            for cred in found:
+                self.ptprint(f"{cred.username}:{cred.password}")
+        else:
+            self.ptprint("No valid credentials found.")
+
+
         return found
     
     def try_authenticated_bind(self, host, port, username, password, uuid, domain=''):
@@ -539,11 +583,11 @@ class MSRPC(BaseModule):
             dce = rpctransport.get_dce_rpc()
             dce.connect()
             dce.bind(uuid)
-            ptprinthelper.ptprint("[+] Successfully authenticated and bound to interface.")
+            self.ptprint("SUCCESS: {username}:{Password}", out=Out.OK)
             dce.disconnect()
             return True
         except Exception as e:
-            ptprinthelper.ptprint(f"[-] Failed to bind/authenticate: {e}")
+            self.ptprint(f"FAIL: {e}", out=Out.ERROR)
             return False
     
 
@@ -552,11 +596,15 @@ class MSRPC(BaseModule):
     def tcp_brute(self) -> list[Credential]:
         #Otestovat
 
+        self.drawDoubleLine()
+        self.ptprint(f"Starting brute-force attack on {self.args.domain}\\{self.args.ip}:{self.args.port}", title=True)
+        self.drawDoubleLine()
+
         if not self.args.username_file and not self.args.username:
-            ptprinthelper.ptprint("[!] No username or username list provided.")
+            self.ptprint("No username or username list provided.", out=Out.WARNING)
             return
         if not self.args.password_file and not self.args.password:
-            ptprinthelper.ptprint("[!] No password or password list provided.")
+            self.ptprint("No password or password list provided.", out=Out.WARNING)
             return
         
         usernames = self._text_or_file(self.args.username, self.args.username_file)
@@ -567,26 +615,39 @@ class MSRPC(BaseModule):
         for username in usernames:
             for password in passwords:
                 try:
-                    success = self.try_authenticated_bind(self.args.ip, self.args.port, username, password, uuid)
+                    success = self.try_authenticated_bind(self.args.ip, self.args.port, username, password, uuid, self.args.domain)
                     if success:
                         found.append(Credential(username=username, password=password))
                 except Exception as e:
                     if self.args.verbose:
-                        ptprinthelper.ptprint(f"[-] Failed: {self.args.domain}\\{username}:{password} ({str(e).strip()})")
+                        self.ptprint(f"FAIL: {self.args.domain}\\{username}:{password} ({str(e).strip()})",out=Out.ERROR)
                     continue
+        
+        self.ptprint("\n")
+        self.ptprint("Valid credentials found:", out=Out.INFO)   
+        if found:
+            for cred in found:
+                self.ptprint(f"{cred.username}:{cred.password}")
+        else:
+            self.ptprint("No valid credentials found.")
 
         return found
     
     # Http credentials bruteforce attack
     #Nutno otestovat
     def http_brute(self) -> List[Credential]:
+
+
+        self.drawDoubleLine()
+        self.ptprint(f"Starting brute-force attack on {self.args.ip}:{self.args.port}", title=True)
+        self.drawDoubleLine()
+
         usernames = self._text_or_file(self.args.username, self.args.username_file)
         passwords = self._text_or_file(self.args.password, self.args.password_file)
         found = []
 
         for username in usernames:
             for password in passwords:
-                print(f"[*] Trying {username}:{password}")
                 binding = f'ncacn_http:{self.args.ip}'
                 rpctransport = transport.DCERPCTransportFactory(binding)
                 rpctransport.set_credentials(username, password, self.args.domain or "")
@@ -598,12 +659,19 @@ class MSRPC(BaseModule):
                     dce = rpctransport.get_dce_rpc()
                     dce.connect()
                     dce.bind(MSRPC_UUID_PORTMAP)
-                    print(f"[+] Success: {username}:{password}")
+                    self.ptprint(f"[+] Success: {username}:{password}", out=Out.OK)
                     found.append(Credential(username=username, password=password))
                     dce.disconnect()
                 except Exception as e:
-                    print(f"[-] Failed: {username}:{password} - {str(e).strip()}")
+                    self.ptprint(f"Failed: {username}:{password} - {str(e).strip()}", out=Out.ERROR)
                     continue
+
+        self.ptprint("Valid credentials found:", out=Out.INFO)   
+        if found:
+            for cred in found:
+                self.ptprint(f"{cred.username}:{cred.password}")
+        else:
+            self.ptprint("No valid credentials found.")
 
         return found
     

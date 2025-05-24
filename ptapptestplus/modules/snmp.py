@@ -210,7 +210,7 @@ class SNMP(BaseModule):
             self.results.Bulk3 = asyncio.run(self.getBulk_SNMPv3())
         
         else:
-            print("[!] Unknown command for SNMP module.")
+            self.ptprint("Unknown command for DNS module.", out=Out.WARNING)
 
      # Map protocol OIDs to human-readable names
     PROTOCOL_NAMES = {
@@ -228,7 +228,7 @@ class SNMP(BaseModule):
     }
 
     def drawDoubleLine(self):
-        print ('=' * 75)
+        self.ptprint ('=' * 75)
 
     def write_to_file(self, message_or_messages: str | list[str]):
         """
