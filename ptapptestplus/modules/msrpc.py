@@ -9,6 +9,8 @@ from impacket.dcerpc.v5.epm import KNOWN_UUIDS
 from impacket.smbconnection import SMBConnection
 from impacket.dcerpc.v5.epm import MSRPC_UUID_PORTMAP
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_WINNT
+from itertools import product
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ptlibs.ptjsonlib import PtJsonLib
 
@@ -86,6 +88,8 @@ class MSRPCArgs(BaseArgs):
     domain: str = None
     verbose: str = True
     uuid: str = None
+    output: str 
+    threads: int
 
 
     def add_subparser(self, name: str, subparsers) -> None:
@@ -115,17 +119,21 @@ class MSRPCArgs(BaseArgs):
         epm_parser = msrpc_subparsers.add_parser("enumerate-epm", help="Enumerate registered EPM endpoints")
         epm_parser.add_argument("-ip", required=True, help="Target IP address")
         epm_parser.add_argument("-p", "--port", type=int, default=135, help="Target port (default: 135)")
+        epm_parser.add_argument("-o" , "--output", help="File to save the output results.")
 
         # Enumerate MGMT endpoints
         mgmt_parser = msrpc_subparsers.add_parser("enumerate-mgmt", help="Enumerate MGMT interface UUIDs")
         mgmt_parser.add_argument("-ip", required=True, help="Target IP address")
         mgmt_parser.add_argument("-p", "--port", type=int, default=135, help="Target port (default: 135)")
+        mgmt_parser.add_argument("-o" , "--output", help="File to save the output results.")
 
         # Pipe bruteforce
         pipe_brute = msrpc_subparsers.add_parser("brute-pipe", help="Brute-force valid credentials for named pipe")
         pipe_brute.add_argument("-ip", required=True, help="Target IP address")
         pipe_brute.add_argument("--pipe", required=True, help="Named pipe to test")
         pipe_brute.add_argument("-d", "--domain", default='', help="Domain name")
+        pipe_brute.add_argument("-o" , "--output", help="File to save the output results.")
+        pipe_brute.add_argument("--threads", type=int, default=10, help="Number of threads to use for brute-force (default: 10)")
 
         user_group = pipe_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
@@ -140,6 +148,8 @@ class MSRPCArgs(BaseArgs):
         smb_brute.add_argument("-ip", required=True, help="Target IP address")
         smb_brute.add_argument("-d", "--domain", default='', help="Domain name")
         smb_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        smb_brute.add_argument("-o" , "--output", help="File to save the output results.")
+        smb_brute.add_argument("--threads", type=int, default=10, help="Number of threads to use for brute-force (default: 10)")
 
         user_group = smb_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
@@ -156,6 +166,8 @@ class MSRPCArgs(BaseArgs):
         tcp_brute.add_argument("--uuid", required=True, help="UUID to bind to")
         tcp_brute.add_argument("-d", "--domain", default='', help="Domain name")
         tcp_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        tcp_brute.add_argument("-o" , "--output", help="File to save the output results.")
+        tcp_brute.add_argument("--threads", type=int, default=10, help="Number of threads to use for brute-force (default: 10)")
         
 
         user_group = tcp_brute.add_mutually_exclusive_group(required=True)
@@ -171,6 +183,8 @@ class MSRPCArgs(BaseArgs):
         http_brute.add_argument("-ip", required=True, help="Target IP address")
         http_brute.add_argument("-d", "--domain", default='', help="Domain name")
         http_brute.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        http_brute.add_argument("-o" , "--output", help="File to save the output results.")
+        http_brute.add_argument("--threads", type=int, default=10, help="Number of threads to use for brute-force (default: 10)")
 
         user_group = http_brute.add_mutually_exclusive_group(required=True)
         user_group.add_argument("-ul", "--username_file", help="Username list file")
@@ -239,6 +253,19 @@ class MSRPC(BaseModule):
     def drawDoubleLine(self):
         self.ptprint('=' * 75)
 
+    def write_to_file(self, message_or_messages: str | list[str]):
+        """
+            File Output.
+        """
+        with open(self.args.output, 'a') as f:
+            if isinstance(message_or_messages, str):
+                # If it's a single message, write it directly
+                f.write(message_or_messages + '\n')
+            elif isinstance(message_or_messages, list):
+                # If it's a list of messages, iterate and write each one
+                for message in message_or_messages:
+                    f.write(message + '\n')
+
     def _text_or_file(self, text: str | None, file_path: str | None):
         """
             One domain/address or file.
@@ -255,6 +282,16 @@ class MSRPC(BaseModule):
         else:
             self.ptprint("Error: Neither text nor file input provided.", out=Out.WARNING)
             return []
+
+
+    def _generate_credentials(self) -> list[Credential]:
+        usernames = self._text_or_file(self.args.username, self.args.username_file)
+        passwords = self._text_or_file(self.args.password, self.args.password_file)
+
+        if not usernames or not passwords:
+            return []
+
+        return [Credential(u, p) for u, p in product(usernames, passwords)]
 
     def enumerate_epm(self) -> dict:
 
@@ -273,6 +310,7 @@ class MSRPC(BaseModule):
             entries = epm.hept_lookup(None, dce=dce)
 
             tmp_endpoints = {}
+            output_lines = []
 
             for entry in entries:
                 binding = epm.PrintStringBinding(entry['tower']['Floors'])
@@ -298,15 +336,26 @@ class MSRPC(BaseModule):
 
             for endpoint in list(tmp_endpoints.keys()):
                 self.ptprint("Protocol: %s " % tmp_endpoints[endpoint]['Protocol'])
+                output_lines.append(f"Protocol: {tmp_endpoints[endpoint]['Protocol']}")
                 self.ptprint("Provider: %s " % tmp_endpoints[endpoint]['EXE'])
+                output_lines.append(f"Provider: {tmp_endpoints[endpoint]['EXE']}")
                 self.ptprint("UUID    : %s %s" % (endpoint, tmp_endpoints[endpoint]['annotation']))
+                output_lines.append(f"UUID    : {endpoint} {tmp_endpoints[endpoint]['annotation']}") 
                 self.ptprint("Bindings: ")
+                output_lines.append("Bindings:")
                 for binding in tmp_endpoints[endpoint]['Bindings']:
                     self.ptprint("          %s" % binding)
+                    output_lines.append(f"          {binding}")
                 self.ptprint("\n")
+                output_lines.append("")
 
             dce.disconnect()
             self.ptprint(f"Total endpoints found: {len(tmp_endpoints)}", out=Out.INFO)
+            output_lines.append(f"Total endpoints found: {len(tmp_endpoints)}")
+
+            if self.args.output:
+                self.write_to_file(output_lines)
+
 
             return tmp_endpoints
 
@@ -384,6 +433,9 @@ class MSRPC(BaseModule):
                     self.ptprint("\n")
                     results.append(tup[0].lower())
             
+            if self.args.output:
+                self.write_to_file(results)
+
             return results
 
         except Exception as e:
@@ -452,40 +504,35 @@ class MSRPC(BaseModule):
         self.ptprint(f"Starting named pipe dictionary attack on \\\\{self.args.ip}\\pipe\\{self.args.pipe}", title=True)
         self.drawDoubleLine()    
 
-        if not self.args.username_file and not self.args.username:
-            self.ptprint("No username or username list provided.", out=Out.WARNING)
-            return
-        if not self.args.password_file and not self.args.password:
-            self.ptprint("No password or password list provided.", out=Out.WARNING)
-            return
+        creds = self._generate_credentials()
+        if not creds:
+            self.ptprint("No credentials to test.", out=Out.WARNING)
+            return []
 
-        usernames = self._text_or_file(self.args.username, self.args.username_file)
-        passwords = self._text_or_file(self.args.password, self.args.password_file)
+        def attempt(cred: Credential) -> Optional[Credential]:
+            try:
+                if self.try_authenticated_pipe_bind(self.args.pipe, cred.username, cred.password, self.args.domain or ''):
+                    return cred
+            except Exception as e:
+                self.ptprint(f"Error {cred.username}:{cred.password} - {str(e).strip()}", out=Out.WARNING)
+            return None
 
         found = []
-
-        for username in usernames:
-            for password in passwords:
-
-                try:
-                    success = self.try_authenticated_pipe_bind(
-                        pipe=self.args.pipe,
-                        username=username,
-                        password=password,
-                        domain=self.args.domain or ''
-                    )
-                    if success:
-                        found.append(Credential(username=username, password=password))
-                        
-                except Exception as e:
-                    self.ptprint(f"Error {self.args.domain}\\{username}:{password} - {str(e).strip()}", out=Out.WARNING)
-                    continue
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            futures = [executor.submit(attempt, cred) for cred in creds]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    found.append(result)
         
         self.ptprint("\n")
         self.ptprint("Valid credentials found:", out=Out.INFO) 
         if found:
             for cred in found:
                 self.ptprint(f"{cred.username}:{cred.password}")
+
+            if self.args.output:
+                self.write_to_file([f"{cred.username}:{cred.password}" for cred in found])
         
         else: 
             self.ptprint("No valid credentials were found.")
@@ -532,41 +579,40 @@ class MSRPC(BaseModule):
         self.ptprint(f"Starting SMB brute-force on {self.args.ip}:{self.args.port or 445}", title=True)
         self.drawDoubleLine()
 
-        if not self.args.username_file and not self.args.username:
-            self.ptprint("Error: No username or username list provided.", out=Out.WARNING)
-            return
-        if not self.args.password_file and not self.args.password:
-            self.ptprint("Error: No password or password list provided.", out=Out.WARNING)
-            return
-        if not self.args.port:
-            self.args.port = 445
-        
-        usernames = self._text_or_file(self.args.username, self.args.username_file)
-        passwords = self._text_or_file(self.args.password, self.args.password_file)
-   
+        creds = self._generate_credentials()
+        if not creds:
+            self.ptprint("No credentials to test.", out=Out.WARNING)
+            return []
+
+        def attempt(cred: Credential) -> Optional[Credential]:
+            try:
+                smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port or 445, timeout=3)
+                smb.login(cred.username, cred.password, self.args.domain)
+                smb.logoff()
+                self.ptprint(f"SUCCESS: {cred.username}:{cred.password}", out=Out.OK)
+                return cred
+            except Exception as e:
+                if self.args.verbose:
+                    self.ptprint(f"FAIL: {cred.username}:{cred.password} ({str(e).strip()})", out=Out.ERROR)
+            return None
+
         found = []
-
-        for username in usernames:
-            for password in passwords:
-                try:
-                    
-                    smb = SMBConnection(self.args.ip, self.args.ip, sess_port=self.args.port, timeout=3)
-                    smb.login(username, password, self.args.domain)
-
-                    self.ptprint(f"SUCCESS: {self.args.domain}\\{username}:{password}", out=Out.OK)
-                    found.append(Credential(username=username, password=password))
-
-                    smb.logoff()
-                except Exception as e:
-                    if self.args.verbose:
-                        self.ptprint(f"FAIL: {self.args.domain}\\{username}:{password} ({str(e).strip()})", out=Out.ERROR)
-                    continue
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            futures = [executor.submit(attempt, cred) for cred in creds]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    found.append(result)
         
         self.ptprint("\n")
         self.ptprint("Valid credentials found:", out=Out.INFO)   
         if found:
             for cred in found:
                 self.ptprint(f"{cred.username}:{cred.password}")
+
+            if self.args.output:
+                self.write_to_file([f"{cred.username}:{cred.password}" for cred in found])
+
         else:
             self.ptprint("No valid credentials found.")
 
@@ -599,34 +645,37 @@ class MSRPC(BaseModule):
         self.ptprint(f"Starting brute-force attack on {self.args.domain}\\{self.args.ip}:{self.args.port}", title=True)
         self.drawDoubleLine()
 
-        if not self.args.username_file and not self.args.username:
-            self.ptprint("No username or username list provided.", out=Out.WARNING)
-            return
-        if not self.args.password_file and not self.args.password:
-            self.ptprint("No password or password list provided.", out=Out.WARNING)
-            return
-        
-        usernames = self._text_or_file(self.args.username, self.args.username_file)
-        passwords = self._text_or_file(self.args.password, self.args.password_file)
-   
-        found = []
+        creds = self._generate_credentials()
+        if not creds:
+            self.ptprint("No credentials to test.", out=Out.WARNING)
+            return []
 
-        for username in usernames:
-            for password in passwords:
-                try:
-                    success = self.try_authenticated_bind(self.args.ip, self.args.port, username, password, uuid, self.args.domain)
-                    if success:
-                        found.append(Credential(username=username, password=password))
-                except Exception as e:
-                    if self.args.verbose:
-                        self.ptprint(f"FAIL: {self.args.domain}\\{username}:{password} ({str(e).strip()})",out=Out.ERROR)
-                    continue
+        def attempt(cred: Credential) -> Optional[Credential]:
+            try:
+                if self.try_authenticated_bind(self.args.ip, self.args.port, cred.username, cred.password, self.args.uuid, self.args.domain):
+                    return cred
+            except Exception as e:
+                if self.args.verbose:
+                    self.ptprint(f"FAIL: {cred.username}:{cred.password} ({str(e).strip()})", out=Out.ERROR)
+            return None
+
+        found = []
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            futures = [executor.submit(attempt, cred) for cred in creds]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    found.append(result)
         
         self.ptprint("\n")
         self.ptprint("Valid credentials found:", out=Out.INFO)   
         if found:
             for cred in found:
                 self.ptprint(f"{cred.username}:{cred.password}")
+
+            if self.args.output:
+                self.write_to_file([f"{cred.username}:{cred.password}" for cred in found])
+
         else:
             self.ptprint("No valid credentials found.")
 
@@ -641,34 +690,44 @@ class MSRPC(BaseModule):
         self.ptprint(f"Starting brute-force attack on {self.args.ip}:{self.args.port}", title=True)
         self.drawDoubleLine()
 
-        usernames = self._text_or_file(self.args.username, self.args.username_file)
-        passwords = self._text_or_file(self.args.password, self.args.password_file)
-        found = []
+        creds = self._generate_credentials()
+        if not creds:
+            self.ptprint("No credentials to test.", out=Out.WARNING)
+            return []
 
-        for username in usernames:
-            for password in passwords:
-                binding = f'ncacn_http:{self.args.ip}'
-                rpctransport = transport.DCERPCTransportFactory(binding)
-                rpctransport.set_credentials(username, password, self.args.domain or "")
+        def attempt(cred: Credential) -> Optional[Credential]:
+            try:
+                rpctransport = transport.DCERPCTransportFactory(f'ncacn_http:{self.args.ip}')
+                rpctransport.set_credentials(cred.username, cred.password, self.args.domain or "")
                 rpctransport.set_auth_type(RPC_C_AUTHN_WINNT)
                 rpctransport.setRemoteHost(self.args.ip)
                 rpctransport.set_dport(443)
 
-                try:
-                    dce = rpctransport.get_dce_rpc()
-                    dce.connect()
-                    dce.bind(MSRPC_UUID_PORTMAP)
-                    self.ptprint(f"[+] Success: {username}:{password}", out=Out.OK)
-                    found.append(Credential(username=username, password=password))
-                    dce.disconnect()
-                except Exception as e:
-                    self.ptprint(f"Failed: {username}:{password} - {str(e).strip()}", out=Out.ERROR)
-                    continue
+                dce = rpctransport.get_dce_rpc()
+                dce.connect()
+                dce.bind(MSRPC_UUID_PORTMAP)
+                dce.disconnect()
+                self.ptprint(f"SUCCESS: {cred.username}:{cred.password}", out=Out.OK)
+                return cred
+            except Exception as e:
+                self.ptprint(f"FAIL: {cred.username}:{cred.password} ({str(e).strip()})", out=Out.ERROR)
+            return None
+
+        found = []
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            futures = [executor.submit(attempt, cred) for cred in creds]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    found.append(result)
 
         self.ptprint("Valid credentials found:", out=Out.INFO)   
         if found:
             for cred in found:
                 self.ptprint(f"{cred.username}:{cred.password}")
+            if self.args.output:
+                self.write_to_file([f"{cred.username}:{cred.password}" for cred in found])
+
         else:
             self.ptprint("No valid credentials found.")
 

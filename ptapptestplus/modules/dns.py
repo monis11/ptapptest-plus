@@ -9,6 +9,7 @@ import whois
 import argparse
 from typing import List, NamedTuple, Optional
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ptlibs.ptjsonlib import PtJsonLib
 
@@ -48,6 +49,7 @@ class DNSArgs(BaseArgs):
     domain_file:str
     output:str
     command: str
+    threads: int
 
     def add_subparser(self, name: str, subparsers) -> None:
         """Adds a subparser of SNMP arguments"""
@@ -71,52 +73,53 @@ class DNSArgs(BaseArgs):
 
         # DNS info
         dns_info = dns_subparsers.add_parser("info", help="Retrieve DNS server information, including BIND version, NSID, and id.server.")
-        dns_info.add_argument("--ip", help="IP address of the target DNS server.")
-        dns_info.add_argument("--port", type=int, default=53, help="Port of the DNS server (default: 53).")
-        dns_info.add_argument("--ip_file", help="File containing a list of target DNS server IP addresses.")
+        dns_info.add_argument("-ip", "--ip", help="IP address of the target DNS server.")
+        dns_info.add_argument("-p", "--port", type=int, default=53, help="Port of the DNS server (default: 53).")
+        dns_info.add_argument("-ips", "--ip_file", help="File containing a list of target DNS server IP addresses.")
 
         # Reverse DNS Lookup
         reverse_dns_parser = dns_subparsers.add_parser("reverse-dns", help="Perform a reverse DNS lookup to resolve domain names from IP addresses.")
-        reverse_dns_parser.add_argument("--ip", help="IP address to perform reverse lookup.")
-        reverse_dns_parser.add_argument("--ip_file", help="File containing a list of target DNS server IP addresses.")
+        reverse_dns_parser.add_argument("-ip", "--ip", help="IP address to perform reverse lookup.")
+        reverse_dns_parser.add_argument("-ips", "--ip_file", help="File containing a list of target DNS server IP addresses.")
         
         # Zone Transfer
         zone_transfer_parser = dns_subparsers.add_parser("zone-transfer", help="Attempt a DNS zone transfer to enumerate DNS records from authoritative servers.")
-        zone_transfer_parser.add_argument("--domain", required=True, help="Domain to attempt zone transfer.")
-        zone_transfer_parser.add_argument("--output", help="File to save the output results.")
+        zone_transfer_parser.add_argument("-d", "--domain", required=True, help="Domain to attempt zone transfer.")
+        zone_transfer_parser.add_argument("-o", "--output", help="File to save the output results.")
         
         # DNS Lookup 
         lookup_parser = dns_subparsers.add_parser("lookup", help="Query and display specified DNS records.")
-        lookup_parser.add_argument("--domain", help="Domain name to analyze.")
-        lookup_parser.add_argument("--lookup-records", nargs='+', help="Specify DNS record types to query (default: A, AAAA, MX, TXT, CNAME, NS, SRV, PTR, SOA).")
-        lookup_parser.add_argument("--domain_file", help="File containing a list of domains to query.")
+        lookup_parser.add_argument("-d", "--domain", help="Domain name to analyze.")
+        lookup_parser.add_argument("-rec", "--lookup-records", nargs='+', help="Specify DNS record types to query (default: A, AAAA, MX, TXT, CNAME, NS, SRV, PTR, SOA).")
+        lookup_parser.add_argument("-dl", "--domain_file", help="File containing a list of domains to query.")
         
         # WHOIS Lookup
         whois_parser = dns_subparsers.add_parser("whois", help="Perform a WHOIS lookup to retrieve domain registration details.")
-        whois_parser.add_argument("--domain", help="Domain name to analyze.")
-        whois_parser.add_argument("--output", help="File to save the output results.")
-        whois_parser.add_argument("--domain_file", help="File containing a list of domains to analyze.")
+        whois_parser.add_argument("-d", "--domain", help="Domain name to analyze.")
+        whois_parser.add_argument("-o", "--output", help="File to save the output results.")
+        whois_parser.add_argument("-dl", "--domain_file", help="File containing a list of domains to analyze.")
 
         # Brute-force Subdomain Enumeration
         brute_subdomains_parser = dns_subparsers.add_parser("brute-subdomains", help="Conduct a brute-force attack to discover subdomains using a specified wordlist.")
-        brute_subdomains_parser.add_argument("--domain", required=True, help="Target domain.")
-        brute_subdomains_parser.add_argument("--subdomains", required=True, help="Path to subdomains wordlist.")
-        brute_subdomains_parser.add_argument("--output", help="File to save the output results.")
-        brute_subdomains_parser.add_argument("--domain_file", help="File containing a list of domains to analyze.")
+        brute_subdomains_parser.add_argument("-d", "--domain", required=True, help="Target domain.")
+        brute_subdomains_parser.add_argument("-sub", "--subdomains", required=True, help="Path to subdomains wordlist.")
+        brute_subdomains_parser.add_argument("-o", "--output", help="File to save the output results.")
+        brute_subdomains_parser.add_argument("-dl", "--domain_file", help="File containing a list of domains to analyze.")
+        brute_subdomains_parser.add_argument("--threads", type=int, default=10, help="Number of threads to use for brute-force (default: 10)")
         # DNSSEC Check
         dnssec_parser = dns_subparsers.add_parser("dnssec", help="Check if the target domain has DNSSEC enabled and properly configured.")
-        dnssec_parser.add_argument("--domain", help="Domain to check DNSSEC status.")
-        dnssec_parser.add_argument("--domain_file", help="File containing a list of domains to analyze.")
+        dnssec_parser.add_argument("-d", "--domain", help="Domain to check DNSSEC status.")
+        dnssec_parser.add_argument("-dl", "--domain_file", help="File containing a list of domains to analyze.")
 
         # Zone Walking
         zone_walk_parser = dns_subparsers.add_parser("zone-walk", help="Attempt DNS zone walking using NSEC/NSEC3 records to enumerate available subdomains.")
-        zone_walk_parser.add_argument("--domain", required=True, help="Domain to perform zone walking.")
-        zone_walk_parser.add_argument("--output", help="File to save the output results.")
+        zone_walk_parser.add_argument("-d", "--domain", required=True, help="Domain to perform zone walking.")
+        zone_walk_parser.add_argument("-o", "--output", help="File to save the output results.")
         
         # Complete Zone Walking
         zone_walk_complete_parser = dns_subparsers.add_parser("zone-walk-complete", help="Perform a full zone walking attempt to enumerate all subdomains using NSEC records.")
-        zone_walk_complete_parser.add_argument("--domain", required=True, help="Domain to perform complete zone walking.")
-        zone_walk_complete_parser.add_argument("--output", help="File to save the output results.")
+        zone_walk_complete_parser.add_argument("-d", "--domain", required=True, help="Domain to perform complete zone walking.")
+        zone_walk_complete_parser.add_argument("-o", "--output", help="File to save the output results.")
 
 class DNS(BaseModule):
 
@@ -487,30 +490,30 @@ class DNS(BaseModule):
                 with open(self.args.subdomains, "r") as f:
                     subdomains = [line.strip() for line in f]
 
-                for sub in subdomains:
+                def resolve_subdomain(sub: str):
                     subdomain = f"{sub}.{domain}"
                     subdomain_records = {}
-
                     for record_type in record_types:
                         try:
                             answers = dns.resolver.resolve(subdomain, record_type)
                             subdomain_records[record_type] = [str(r) for r in answers]
-                        except dns.resolver.NXDOMAIN:
-                            continue  # subdomain doesnt exist
-                        except dns.resolver.NoAnswer:
-                            continue  # no recirds available
-                        except dns.resolver.Timeout:
-                           self.ptprint(f"Timeout on {subdomain} for {record_type}", out=Out.WARNING)
-                        except Exception as e:
-                            self.ptprint(f"Error checking {subdomain} ({record_type}): {e}", out=Out.WARNING)
-
-                    # if any recird found -> subdmain exists
+                        except Exception:
+                            continue
                     if subdomain_records:
-                        found_subdomains.append((subdomain, subdomain_records))
-                        output.append(subdomain)
-                        self.ptprint(f"Found: {subdomain}", out=Out.OK)
-                        for rtype, values in subdomain_records.items():
-                            self.ptprint(f"   └── {rtype}: {', '.join(values)}")
+                        return (subdomain, subdomain_records)
+                    return None
+
+                with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+                    futures = [executor.submit(resolve_subdomain, sub) for sub in subdomains]
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result:
+                            subdomain, records = result
+                            found_subdomains.append((subdomain, records))
+                            output.append(subdomain)
+                            self.ptprint(f"Found: {subdomain}", out=Out.OK)
+                            for rtype, values in records.items():
+                                self.ptprint(f"   └── {rtype}: {', '.join(values)}")
 
                 self.ptprint("\n")
                 self.ptprint(f"Brute-force attack completed. Found {len(found_subdomains)} subdomains.", out=Out.INFO)

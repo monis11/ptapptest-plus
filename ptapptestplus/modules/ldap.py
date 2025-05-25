@@ -3,6 +3,7 @@ from enum import Enum
 from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE
 from typing import  List, NamedTuple, Optional
 import argparse 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ptlibs.ptjsonlib import PtJsonLib
 
@@ -52,6 +53,7 @@ class LDAPArgs(BaseArgs):
     target_dn:str = None
     attribute:str = 'sn'
     test_value:str = None
+    threads:int
 
 
     def add_subparser(self, name: str, subparsers) -> None:
@@ -125,6 +127,7 @@ class LDAPArgs(BaseArgs):
         brute_parser.add_argument("-bd", "--base-dn", help="Base DN (example: dc=example,dc=com)")
         brute_parser.add_argument("-upn", "--upn-domain", help="UPN domain (example: example.com)")
         brute_parser.add_argument("-spray", action="store_true", help="Enable password spraying mode (one password across all users)")
+        brute_parser.add_argument("--threads", type=int, default=10, help="Number of threads for parallel brute-force (default: 10)")
         brute_parser.add_argument("-o", "--output", help="Output file to save valid credentials")
         brute_parser.add_argument("-cnuid", nargs='+', default=['uid', 'cn'], help="Attributes to bind with (default: uid and cn)")
 
@@ -501,6 +504,29 @@ class LDAP(BaseModule):
         """
         Attempts to brute-force LDAP credentials using provided usernames and passwords.
         """
+        def attempt_login(cred: Credential) -> Optional[Credential]:
+            for i in self.args.cn_uid:
+                try:
+                    if self.args.base_dn:
+                        bind_dn = f"{i}={cred.username},{self.args.base_dn}"
+                    elif self.args.upn_domain:
+                        bind_dn = f"{cred.username}@{self.args.upn_domain}"
+                    else:
+                        bind_dn = cred.username
+
+                    server = Server(self.args.ip, port=self.args.port, use_ssl=self.args.use_ssl, get_info=ALL)
+                    conn = Connection(server, user=bind_dn, password=cred.password, auto_bind=True)
+                    if conn.bound:
+                        self.ptprint(f"SUCCESS: {bind_dn}:{cred.password}", out=Out.OK)
+                        conn.unbind()
+                        return Credential(username=bind_dn, password=cred.password)
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if "invalidcredentials" in err_msg:
+                        self.ptprint(f"FAIL: {bind_dn}:{cred.password}", out=Out.ERROR)
+                    else:
+                        self.ptprint(f"ERROR for {bind_dn}:{cred.password} -> {e}", out=Out.WARNING)
+            return None
 
         self.drawDoubleLine()
         self.ptprint(f"Starting LDAP brute-force on {self.args.ip}:{self.args.port} (SSL: {self.args.use_ssl})", title=True)
@@ -524,28 +550,14 @@ class LDAP(BaseModule):
             self.ptprint("No base_dn provided.", out=Out.WARNING)
             self.ptprint("Proceeding with simple username-only bind. Success is unlikely unless the server accepts plain usernames.", out=Out.WARNING)
 
-        for cred in creds:
-            for i in self.args.cn_uid:    
-                try:
-                    if self.args.base_dn:
-                        bind_dn = f"{i}={cred.username},{self.args.base_dn}"
-                    elif self.args.upn_domain:
-                        bind_dn = f"{cred.username}@{self.args.upn_domain}"
-                    else:
-                        bind_dn = cred.username  # Simple username only
-                   
-                    server = Server(self.args.ip, port=self.args.port, use_ssl=self.args.use_ssl, get_info=ALL)
-                    conn = Connection(server, user=bind_dn, password=cred.password, auto_bind=True)
-                    if conn.bound:
-                        self.ptprint(f"SUCCESS: {bind_dn}:{cred.password}", out=Out.OK)
-                        valid_credentials.append(Credential(username=bind_dn, password=cred.password))
-                        conn.unbind()
-                except Exception as e:
-                    err_msg = str(e).lower()
-                    if "invalidcredentials" in err_msg:
-                        self.ptprint(f"FAIL: {bind_dn}:{cred.password}", out=Out.ERROR)
-                    else:
-                        self.ptprint(f"ERROR for {bind_dn}:{cred.password} -> {e}", out=Out.WARNING)
+        max_threads = getattr(self.args, "threads", 10)
+
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            futures = [executor.submit(attempt_login, cred) for cred in creds]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    valid_credentials.append(result)
 
         if valid_credentials:
 
