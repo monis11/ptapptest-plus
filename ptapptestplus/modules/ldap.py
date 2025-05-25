@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
 from ldap3 import Server, Connection, ALL, SUBTREE, MODIFY_REPLACE
-from colorama import Fore, Style, init
 from typing import  List, NamedTuple, Optional
 import argparse 
-import sys
 
 from ptlibs.ptjsonlib import PtJsonLib
 

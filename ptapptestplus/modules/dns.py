@@ -7,7 +7,6 @@ import dns.zone
 import dns.dnssec
 import whois 
 import argparse
-from colorama import Fore, Style, init
 from typing import List, NamedTuple, Optional
 from dataclasses import dataclass
 

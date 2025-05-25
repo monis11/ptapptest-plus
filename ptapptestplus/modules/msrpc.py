@@ -2,7 +2,6 @@ import argparse
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, NamedTuple, Optional
-from colorama import Fore, Style
 from impacket.dcerpc.v5 import epm, transport
 from impacket import uuid
 from impacket.dcerpc.v5 import mgmt
