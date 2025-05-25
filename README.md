@@ -11,8 +11,6 @@
   - **LDAP**: anonymous bind, schema enumeration, directory search, user enumeration, brute-force, write access testing
   - **MSRPC**: endpoint mapper enumeration, pipe authentication, UUID listing, dictionary attacks
 
-___
-
 ## How to Install
 Follow these steps to set up and run the `ptapptestplus` tool in your local environment:
 
@@ -42,8 +40,6 @@ Install the tool using pip:
 
 Once installed, you can run the tool with:
 ``` ptapptestplus --help ```
-
-___
 
 ## Example Usage
 
